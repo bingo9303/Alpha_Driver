@@ -1,4 +1,4 @@
-#include <linux/init.h>
+﻿#include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/fs.h>
@@ -184,13 +184,12 @@ static void timerKeyCallFunction_key_0(unsigned long data)
 			if(atomic_read(&dev->pressFlag) == KEY_VALUE_PRESS)
 			{
 				atomic_set(&dev->pressFlag,KEY_VALUE_RAISE);
+				wake_up(&keyInterruptInfo.r_wait);		//唤醒
 			}
 			else
 			{
 				atomic_set(&dev->pressFlag,KEY_VALUE_NONE);
 			}
-
-			wake_up(&keyInterruptInfo.r_wait);		//唤醒
 		}
 		else
 		{
