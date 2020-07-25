@@ -26,7 +26,7 @@
 
 
 #define KEY_INTERRUPT_MAJOR		201
-#define KEY_INTERRUPT_NAME		"keyNoBlockBingo"
+#define KEY_INTERRUPT_NAME		"keyFasyncBingo"
 #define KEY_INTERRUPT_CNT		1
 #define KEY_NUM					1
 
@@ -140,7 +140,7 @@ const struct file_operations key_interrupt_fops =
 	.open		= key_interrupt_open,
 	.read		= key_interrupt_read,
 	.write      = key_interrupt_write,
-	.fsync		= key_interrupt_fasync,
+	.fasync		= key_interrupt_fasync,
 	.release	= key_interrupt_release,
 };
 
@@ -176,7 +176,7 @@ static void timerKeyCallFunction_key_0(unsigned long data)
 			if(atomic_read(&dev->pressFlag) == KEY_VALUE_PRESS)
 			{
 				atomic_set(&dev->pressFlag,KEY_VALUE_RAISE);
-				kill_fasync(&keyInterruptInfo->async_queue, SIGIO, POLL_IN);	//向应用程序发送信号
+				kill_fasync(&keyInterruptInfo.async_queue, SIGIO, POLL_IN);	//向应用程序发送信号
 			}
 			else
 			{
