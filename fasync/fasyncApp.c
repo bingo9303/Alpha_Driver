@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h> 
+#include <signal.h>
 
 #define KEY_NUM					1
 
@@ -15,18 +16,20 @@ static int fd=0;		//文件描述符
 
 void SIGIO_Sighandler(int signum)
 {
-	u8 i;
+	int i;
 	int value = 0;
-	
-	read(fd, &value, 1);
 
-	
-	for(i=0;i<KEY_NUM;i++)
+	if(signum == SIGIO)
 	{
-		if(value & (1<<i))
+		read(fd, &value, 1);
+		for(i=0;i<KEY_NUM;i++)
 		{
-			printf("**APP** : signum = %d , key_%d press\r\n",signum,i);
+			if(value & (1<<i))
+			{
+				printf("**APP** : signum = %d , key_%d press\r\n",signum,i);
+			}
 		}
+
 	}
 }
 
@@ -36,6 +39,7 @@ int main(int argc, char *argv[])
 {
 	int i;
 	int result = 0;
+	void* result_p=NULL;
 	
 	char* filename = NULL;
 	int flag;
@@ -55,8 +59,8 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	result = signal(SIGIO, SIGIO_Sighandler);
-	if(result == SIG_ERR)
+	result_p = signal(SIGIO, SIGIO_Sighandler);
+	if(result_p == SIG_ERR)
 	{
 		printf("**APP** : signal SIGIO faild!!!\r\n");
 		goto closeApp;
@@ -69,7 +73,7 @@ int main(int argc, char *argv[])
 	
 	while(1)
 	{
-		sleep(2);		//让进程一直处于休眠状态
+		sleep(2);		//让进程一直处于休眠状态,否则CPU的占用率很高
 	}
 
 closeApp:
