@@ -1,13 +1,26 @@
-#include <linux/init.h>
-#include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/fs.h>
 #include <linux/types.h>
+#include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/ide.h>
-#include <asm/io.h>
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/errno.h>
+#include <linux/gpio.h>
 #include <linux/cdev.h>
 #include <linux/device.h>
+#include <linux/of_gpio.h>
+#include <linux/semaphore.h>
+#include <linux/timer.h>
+#include <linux/irq.h>
+#include <linux/wait.h>
+#include <linux/poll.h>
+#include <linux/fs.h>
+#include <linux/fcntl.h>
+#include <linux/platform_device.h>
+#include <asm/mach/map.h>
+#include <asm/uaccess.h>
+#include <asm/io.h>
+
 
 
 
@@ -48,7 +61,7 @@ static int led_open(struct inode *inode, struct file *file)
 
 static int led_release(struct inode *inode, struct file *file)
 {
-	
+	printk("**Kernel** : driver release !!!\r\n");
 	return 0;
 }
 
@@ -225,6 +238,8 @@ static int led_remove(struct platform_device *dev)
 	class_destroy(ledInfo.class);
 	
 	printk("**Kernel** : exti led driver succeed!!!\r\n");
+
+	return 0;
 }
 
 

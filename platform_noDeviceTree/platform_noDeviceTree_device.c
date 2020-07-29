@@ -58,7 +58,7 @@ static struct resource deviceResource[] =
 			},
 	[3] = {
 			.start = GPIO1_DR,
-			,end = GPIO1_DR + REGISTER_LEN - 1,
+			.end = GPIO1_DR + REGISTER_LEN - 1,
 			.flags = IORESOURCE_MEM,
 			},
 	[4] = {
@@ -68,25 +68,49 @@ static struct resource deviceResource[] =
 			},
 };
 
+static void led_device_release(struct device *dev)
+{
+	printk("**Kernel** : device release !!!\r\n");
+}
 
 
 
 
 static struct platform_device leddevice = 
 {
-	.name = 
+	.name = "led-bingo-platform-gpio",
+	.id = -1,
 	.resource = deviceResource,
-	
-
-
-
-
+	.num_resources = ARRAY_SIZE(deviceResource),
+	.dev = 
+	{
+		.release = led_device_release,
+	},
 };
 
 
 
 
+static int __init ledDevice_init(void)
+{
+	return platform_device_register(&leddevice);
+}
 
+
+static void __exit ledDevice_exit(void)
+{
+	platform_device_unregister(&leddevice);
+}
+
+
+
+module_init(ledDevice_init);
+module_exit(ledDevice_exit);
+
+
+
+MODULE_LICENSE("GPL"); 
+MODULE_AUTHOR("BINGO");
 
 
 
