@@ -185,6 +185,7 @@ static int beep_remove(struct platform_device *dev)
 	gpio_free(beepInfo.beep_gpio);
 
 	printk("**Kernel** : exti beep driver succeed!!!\r\n");
+	return 0;
 }
 
 
@@ -198,6 +199,9 @@ static const struct of_device_id beep_device_id[] =
 	[1] = 
 		{},//最后一个必须全空
 };
+
+MODULE_DEVICE_TABLE(of,beep_device_id);
+
 
 static struct platform_driver beep_platform_driver = 
 {
