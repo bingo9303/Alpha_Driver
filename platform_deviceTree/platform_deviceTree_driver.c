@@ -257,6 +257,8 @@ static int led_remove(struct platform_device *dev)
 	gpio_free(ledInfo.led_gpio);
 	
 	printk("**Kernel** : exti led driver succeed!!!\r\n");
+
+	return 0;
 }
 
 
@@ -270,6 +272,9 @@ static const struct of_device_id led_device_id[] =
 		{},//最后一个必须全空
 };
 
+
+MODULE_DEVICE_TABLE(of,led_device_id);
+
 static struct platform_driver led_platform_driver = 
 {
 	.probe = led_probe,
@@ -280,6 +285,10 @@ static struct platform_driver led_platform_driver =
 			.of_match_table = led_device_id,
 		},
 };
+
+
+
+
 
 
 static int __init ledDriver_init(void)
