@@ -1,17 +1,24 @@
-#include <linux/init.h>
-#include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/fs.h>
-#include <linux/types.h>
-#include <linux/delay.h>
-#include <linux/ide.h>
-#include <asm/io.h>
+#include <linux/types.h> 
+#include <linux/kernel.h> 
+#include <linux/delay.h> 
+#include <linux/ide.h> 
+#include <linux/init.h> 
+#include <linux/module.h> 
+#include <linux/errno.h> 
+#include <linux/gpio.h> 
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/of.h>
-#include <linux/of_irq.h>
-#include <linux/gpio.h>
+#include <linux/of_address.h>
 #include <linux/of_gpio.h>
+#include <linux/platform_device.h>
+#include <linux/miscdevice.h>
+#include <asm/mach/map.h>
+#include <asm/uaccess.h>
+#include <asm/io.h>
+
+
+
 
 #define MISC_BEEP_MINOR	177
 #define MISC_BEEP_NAME	"misc_beep"
@@ -77,7 +84,7 @@ static struct miscdevice miscdev_beep =
 {
 	.minor = MISC_BEEP_MINOR,
 	.name = MISC_BEEP_NAME,
-	.fops = beep_fops,
+	.fops = &beep_fops,
 };
 
 
