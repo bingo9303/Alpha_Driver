@@ -1,17 +1,24 @@
-﻿#include <linux/init.h>
-#include <linux/module.h>
+﻿#include <linux/types.h>
 #include <linux/kernel.h>
-#include <linux/fs.h>
-#include <linux/types.h>
 #include <linux/delay.h>
 #include <linux/ide.h>
-#include <asm/io.h>
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/errno.h>
+#include <linux/gpio.h>
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/of.h>
-#include <linux/of_irq.h>
-#include <linux/gpio.h>
+#include <linux/of_address.h>
 #include <linux/of_gpio.h>
+#include <linux/input.h>
+#include <linux/semaphore.h>
+#include <linux/timer.h>
+#include <linux/of_irq.h>
+#include <linux/irq.h>
+#include <asm/mach/map.h>
+#include <asm/uaccess.h>
+#include <asm/io.h>
 
 
 #define KEY_INPUT_NAME		"keyInputBingo"
@@ -29,7 +36,6 @@ struct keyInfo
 {
 	
 	atomic_t keyValue;
-	atomic_t pressFlag;		//是否有按下抬起一个完整过程
 	int keyGpio;
 	int irqIndex;		//中断号
 	char name[20];
@@ -60,12 +66,11 @@ static irqreturn_t irq_handler_func_key_0(int irq, void *dev_id)
 	struct _keyInputInfo* dev = (struct _keyInputInfo*)dev_id;
 	atomic_set(&dev->key[0].keyValue,__gpio_get_value(dev->key[0].keyGpio));
 
+
 	/* 激活定时器进行消抖处理 */
 	
-	if(atomic_read(&dev->key[0].pressFlag) != KEY_VALUE_RAISE)	//上一次按键按下处理完成后才处理下一次按键
-	{
-		mod_timer(&dev->key[0].timer, (jiffies + msecs_to_jiffies(20)));
-	}	
+	mod_timer(&dev->key[0].timer, (jiffies + msecs_to_jiffies(20)));
+	
 	return IRQ_HANDLED;
 }
 
@@ -74,39 +79,29 @@ static void timerKeyCallFunction_key_0(unsigned long data)
 	int value;
 	struct keyInfo * dev = (struct keyInfo*)data;
 	value = __gpio_get_value(dev->keyGpio);
+	
 	if(value == atomic_read(&dev->keyValue))/* 如果按键状态还是相同 */
 	{
-		if(value == 0)
+		if(value == 0)		//上报linux的输入子系统按键的状态值
 		{
-			atomic_set(&dev->keyValue,KEY_VALUE_PRESS);
-			atomic_set(&dev->pressFlag,KEY_VALUE_PRESS);
+			input_report_key(keyInputInfo.input_key_dev,dev->keyCode,1);
+			input_sync(keyInputInfo.input_key_dev);
 		}
 		else if(value == 1)
 		{
-			atomic_set(&dev->keyValue,KEY_VALUE_RAISE);
-			if(atomic_read(&dev->pressFlag) == KEY_VALUE_PRESS)
-			{
-				atomic_set(&dev->pressFlag,KEY_VALUE_RAISE);
-				input_report_key(keyInputInfo.input_key_dev,dev->keyCode,1);
-				input_sync(keyInputInfo.input_key_dev);
-			}
-			else
-			{
-				atomic_set(&dev->pressFlag,KEY_VALUE_NONE);
-			}
+			input_report_key(keyInputInfo.input_key_dev,dev->keyCode,0);
+			input_sync(keyInputInfo.input_key_dev);
 		}
 		else
 		{
-			atomic_set(&dev->keyValue,KEY_VALUE_NONE);
-			atomic_set(&dev->pressFlag,KEY_VALUE_NONE);
+			
 		}
 	}
 	else
 	{
-		atomic_set(&dev->keyValue,KEY_VALUE_NONE);
-		atomic_set(&dev->pressFlag,KEY_VALUE_NONE);
+		
 	}
-
+	atomic_set(&dev->keyValue,KEY_VALUE_NONE);
 }
 
 static irq_handler_t irqFuncArray[KEY_NUM] = {irq_handler_func_key_0};
