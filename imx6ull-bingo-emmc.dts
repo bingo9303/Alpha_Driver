@@ -300,13 +300,19 @@
 		reg = <0x0e>;
 		position = <2>;
 	};
-
+#if 0
 	fxls8471@1e {
 		compatible = "fsl,fxls8471";
 		reg = <0x1e>;
 		position = <0>;
 		interrupt-parent = <&gpio5>;
 		interrupts = <0 8>;
+	};
+#endif
+
+	ap3216c@1e {
+		compatible = "bingo,ap3216c";
+		reg = <0x1e>;
 	};
 };
 
