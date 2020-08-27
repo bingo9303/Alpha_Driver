@@ -20,6 +20,8 @@
 #include <asm/mach/map.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>
+#include <linux/i2c.h>
+
 
 
 #define AP3216C_CNT		1
@@ -107,7 +109,7 @@ static int ap3216c_write_regs(struct i2c_client *client,__u8 startReg,__u8* buf,
 	msg.buf = msgBuff;
 	msg.len = len+1;			//要加上寄存器首地址那一个字节
 
-	result = i2c_transfer(dev->adapter,msg,1);
+	result = i2c_transfer(dev->adapter,&msg,1);
 
 	if(result != 1)
 	{
@@ -139,9 +141,11 @@ static void ap3216c_write_OneReg(struct i2c_client *client,__u8 reg,__u8 value)
 
 static int ap3216c_open(struct inode *inode, struct file *file)
 {
+	struct ap3216cInfo* dev ;
 	struct i2c_client * client;
-	file->private_data = (struct ap3216cInfo*)&_ap3216cInfo;
-	client = (struct i2c_client *)file->private_data->private_data;
+	file->private_data = &_ap3216cInfo;
+	dev = (struct ap3216cInfo*)file->private_data;
+	client = (struct i2c_client *)(dev->private_data);
 	
 
 	ap3216c_write_OneReg(client,AP3216C_SYSTEMCONG,0x04);	//复位芯片
@@ -169,7 +173,7 @@ static ssize_t ap3216c_read(struct file *file, char __user *userbuf,
 
 	for(i=0;i<6;i++)
 	{
-		ap3216c_read_OneReg((struct i2c_client *)dev->private_data,&readBuff[i]);		
+		readBuff[i] = ap3216c_read_OneReg((struct i2c_client *)dev->private_data,AP3216C_IRDATALOW+i);		
 	}
 
 	if((readBuff[0] & (1<<7)) == 0)
@@ -255,7 +259,8 @@ static int ap3216c_probe(struct i2c_client *client,const struct i2c_device_id *i
 	}
 
 	_ap3216cInfo.private_data = client;	//把私有数据设置为client
-	
+
+	printk("**Kernel** : probe ap3216c driver succeed!!!\r\n");
 	return 0;
 
 
@@ -292,28 +297,29 @@ static int ap3216c_remove(struct i2c_client *client)
 
 
 
-static const struct of_device_id ap3216c_of_match[] = 
-{
-	[0] = 
-		{
-			.compatible = "bingo,ap3216c",			
-		},
-	[1] = 
-		{},//最后一个必须全空
+
+static const struct i2c_device_id ap3216c_i2c_id[] = {
+	{ "ap3216c", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, ap3216c_i2c_id);
+
+static const struct of_device_id ap3216c_of_match[] = {
+       { .compatible = "bingo,ap3216c", },
+       { }
 };
 
-MODULE_DEVICE_TABLE(of,ap3216c_of_match);
-
-
+MODULE_DEVICE_TABLE(of, ap3216c_of_match);
 
 static struct i2c_driver ap3216c_driver = {
 	.driver = {
 		.name	= "i2cDriver_ap3216c",
 		.owner	= THIS_MODULE,
-		.of_math_table = ap3216c_of_match,
+		.of_match_table = ap3216c_of_match,
 	},
 	.probe = ap3216c_probe,
 	.remove = ap3216c_remove,
+	.id_table = ap3216c_i2c_id,
 };
 
 static int __init ap3216c_init(void)
