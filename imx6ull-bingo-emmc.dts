@@ -523,8 +523,8 @@
 			fsl,pins = <
 				MX6UL_PAD_UART2_TX_DATA__UART2_DCE_TX	0x1b0b1
 				MX6UL_PAD_UART2_RX_DATA__UART2_DCE_RX	0x1b0b1
-				MX6UL_PAD_UART3_RX_DATA__UART2_DCE_RTS	0x1b0b1
-				MX6UL_PAD_UART3_TX_DATA__UART2_DCE_CTS	0x1b0b1
+				//MX6UL_PAD_UART3_RX_DATA__UART2_DCE_RTS	0x1b0b1
+				//MX6UL_PAD_UART3_TX_DATA__UART2_DCE_CTS	0x1b0b1
 			>;
 		};
 
@@ -532,8 +532,15 @@
 			fsl,pins = <
 				MX6UL_PAD_UART2_TX_DATA__UART2_DTE_RX	0x1b0b1
 				MX6UL_PAD_UART2_RX_DATA__UART2_DTE_TX	0x1b0b1
-				MX6UL_PAD_UART3_RX_DATA__UART2_DTE_CTS	0x1b0b1
-				MX6UL_PAD_UART3_TX_DATA__UART2_DTE_RTS	0x1b0b1
+				//MX6UL_PAD_UART3_RX_DATA__UART2_DTE_CTS	0x1b0b1
+				//MX6UL_PAD_UART3_TX_DATA__UART2_DTE_RTS	0x1b0b1
+			>;
+		};
+
+		pinctrl_uart3: uart3grp {
+			fsl,pins = <
+				MX6UL_PAD_UART3_RX_DATA__UART3_DCE_RX 	0x1b0b1
+				MX6UL_PAD_UART3_TX_DATA__UART3_DCE_TX 	0x1b0b1
 			>;
 		};
 
@@ -813,6 +820,7 @@
 	status = "okay";
 };
 
+#if 0
 &uart2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart2>;
@@ -822,6 +830,15 @@
 	/* pinctrl-0 = <&pinctrl_uart2dte>; */
 	status = "okay";
 };
+#endif
+
+&uart3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart3>;
+	status = "okay";
+};
+
+
 
 &usbotg1 {
 	dr_mode = "otg";
