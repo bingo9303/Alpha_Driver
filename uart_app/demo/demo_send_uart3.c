@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	fd = open_uart_port(port,OEPN_UART_BLOCK);	//ÒÔ×èÈû´ò¿ª
+	fd = open_uart_port(port,OEPN_UART_BLOCK);	//ä»¥é˜»å¡žæ‰“å¼€
 	if(fd < 0)
 	{
 		printf("**APP** : open uart port faild!!!\r\n");
@@ -41,10 +41,11 @@ int main(int argc, char *argv[])
 	while(1)
 	{
 		int len;
-		res = gets(str);	  //gets¶ÁÒ»ÐÐ£¬getchar()¶ÁÒ»¸ö×Ö·û¡£
+		//res = gets(str);	  //getsæ˜¯èŽ·å–ä¸€è¡Œ getchar()æ˜¯èŽ·å–ä¸€ä¸ªå­—ç¬¦
+		res = fgets(str,1024,stdin);	//ç”¨getsä¼šè­¦å‘Š
 		if(res != NULL)
 		{
-			if(strcmp(str,"return") == 0)	break;
+			if(strcmp(str,"return\n") == 0)	break;	//fgetsä¼šè‡ªå·±åœ¨åŽé¢å¤šåŠ ä¸€ä¸ªæ¢è¡Œå­—ç¬¦
 			len = strlen(str);
 
 			write_uart_port(fd,str,(len>sizeof(str))?sizeof(str):len);			

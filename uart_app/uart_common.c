@@ -1,12 +1,11 @@
-#include <stdio.h>
-#include <string.h>
 #include <sys/types.h>
-#include <errno.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <termios.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <termios.h>
 #include "uart_common.h"
 
 
@@ -16,7 +15,7 @@ int open_uart_port(int port,int flag)
 	char devName[20];
 	int result=0;
 
-	if((port<1) || (port>8))	return -1;
+	if((port<0) || (port>7))	return -1;
 
 	
 	sprintf(devName,"/dev/ttymxc%d",port);
@@ -37,7 +36,6 @@ int open_uart_port(int port,int flag)
 			goto open_faild;  
 		} 
 	}
-		  
 	/*测试打开的文件描述符是否应用一个终端设备，以进一步确认串口是否正确打开*/  
 	if(!isatty(STDIN_FILENO))
 	{  
@@ -69,7 +67,7 @@ int set_uart_port(int fd,int iBaudRate,int iDataSize,char cParity,int iStopBit)
 
 	
     bzero(&newtio,sizeof(newtio));  
-    newtio.c_cflag |= CLOCAL | CREAD;/*设置本地连接和接收使用*/  
+    newtio.c_cflag |= CLOCAL | CREAD;/*设置本地连接和接收使用*/ 
 
 	/*设置输入输出波特率*/  
     switch(iBaudRate)  
@@ -162,7 +160,9 @@ int set_uart_port(int fd,int iBaudRate,int iDataSize,char cParity,int iStopBit)
     }  
       
     newtio.c_cc[VTIME] = 0; /*设置等待时间*/  
-    newtio.c_cc[VMIN] = 0;  /*设置最小字符*/  
+    newtio.c_cc[VMIN] = 1;  /*设置最小字符*/  
+	/* 上面两个条件为非零时才有效，两个都为非零时任意一个条件达到都返回，如果两个条件都为零，则马上返回 */
+	
     tcflush(fd,TCIFLUSH);       /*刷新输入队列(TCIOFLUSH为刷新输入输出队列)*/  
     iResult = tcsetattr(fd,TCSANOW,&newtio);    /*激活新的设置使之生效,参数TCSANOW表示更改立即发生*/  
   

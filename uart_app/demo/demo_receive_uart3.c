@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	fd = open_uart_port(port,OEPN_UART_BLOCK);	//��������
+	fd = open_uart_port(port,OEPN_UART_BLOCK);	//以阻塞打开
 	if(fd < 0)
 	{
 		printf("**APP** : open uart port faild!!!\r\n");
@@ -47,12 +47,16 @@ int main(int argc, char *argv[])
 	while(1)
 	{
 		returnCount = 0;	
-		returnCount = read_uart_port(fd, readBuff, 0xFF);
+		returnCount = read_uart_port(fd, readBuff,0xFF);
+
+		//printf("returnCount = %d\r\n",returnCount);
+	
 		if(returnCount > 0)
 		{
 			int i;
 			for(i=0;i<returnCount;i++)
-				printf("%02X ",readBuff[i]);
+				printf("%c",readBuff[i]);
+			fflush(stdout);	//刷新一下缓冲区 让它马上输出. 不然没有\r\n没有输出到控制台
 		}
 	}
 

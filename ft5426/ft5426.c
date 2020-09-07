@@ -1,24 +1,21 @@
-#include <linux/types.h>
-#include <linux/kernel.h>
-#include <linux/delay.h>
-#include <linux/ide.h>
-#include <linux/init.h>
 #include <linux/module.h>
-#include <linux/errno.h>
-#include <linux/gpio.h>
-#include <linux/cdev.h>
-#include <linux/device.h>
-#include <linux/of.h>
-#include <linux/of_address.h>
-#include <linux/of_gpio.h>
+#include <linux/ratelimit.h>
+#include <linux/interrupt.h>
 #include <linux/input.h>
-#include <linux/semaphore.h>
-#include <linux/timer.h>
+#include <linux/i2c.h>
+#include <linux/uaccess.h>
+#include <linux/delay.h>
+#include <linux/debugfs.h>
+#include <linux/slab.h>
+#include <linux/gpio.h>
+#include <linux/of_gpio.h>
+#include <linux/input/mt.h>
+#include <linux/input/touchscreen.h>
+#include <linux/input/edt-ft5x06.h>
+#include <linux/i2c.h>
+#include <linux/of.h>
 #include <linux/of_irq.h>
-#include <linux/irq.h>
-#include <asm/mach/map.h>
-#include <asm/uaccess.h>
-#include <asm/io.h>
+
 
 
 #define LCD_TOUCH_MAX_X			1024
@@ -42,7 +39,6 @@ struct ft5426_info
 	int rst_gpio;
 	int irqIndex;
 	struct input_dev*	input_dev;
-	void* private_data;
 };
 
 
@@ -105,14 +101,15 @@ static __u8 ft5426_read_one_reg(struct i2c_client *client,__u8 reg)
 
 static irqreturn_t ft5426_irq_handler(int irq, void *dev_id)
 {
-
+	return IRQ_HANDLED;
 }
 
 
-static int ft5426_of_get_deviceTree_info(struct ft5426_info *dev_info)
+static int ft5426_of_get_deviceTree_info(struct i2c_client *client)
 {
-	struct i2c_client *client = (struct i2c_client *)dev_info->private_data;
 	struct device_node *of_node = client->dev.of_node;
+	struct ft5426_info *dev_info = (struct ft5426_info *)client->dev.driver_data;
+	
 	dev_info->irq_gpio = of_get_named_gpio(of_node,"int-gpios",0);
 	dev_info->rst_gpio = of_get_named_gpio(of_node,"rst-gpios",0);
 
@@ -132,12 +129,12 @@ static int ft5426_of_get_deviceTree_info(struct ft5426_info *dev_info)
 }
 
 
-static int ft5426_alloc_input_dev(struct ft5426_info* dev_info)
+static int ft5426_alloc_input_dev(struct i2c_client *client)
 {
 	int result=0;
-	struct i2c_client *client = (struct i2c_client *)dev_info->private_data;
-
-	dev_info->input_dev = devm_input_allocate_device();
+	struct ft5426_info *dev_info = (struct ft5426_info *)client->dev.driver_data;
+	
+	dev_info->input_dev = devm_input_allocate_device(&client->dev);
 	if(dev_info->input_dev == NULL)	return -ENOMEM;
 
 	dev_info->input_dev->name = client->name;
@@ -164,11 +161,11 @@ static int ft5426_alloc_input_dev(struct ft5426_info* dev_info)
 }
 
 
-static int ft5426_init_io_irq(struct ft5426_info* dev_info)
+static int ft5426_init_io_irq(struct i2c_client *client)
 {
 	int result=0;
-	struct i2c_client *client = (struct i2c_client *)dev_info->private_data;
-
+	struct ft5426_info *dev_info = (struct ft5426_info *)client->dev.driver_data;
+	
 	if(gpio_is_valid(dev_info->rst_gpio))
 	{
 		result = devm_gpio_request_one(&client->dev,dev_info->rst_gpio,GPIOF_OUT_INIT_HIGH,"bingo_tf5426_rst");
@@ -207,11 +204,10 @@ static int ft5426_init_io_irq(struct ft5426_info* dev_info)
 
 
 
-static void ft5426_init(struct ft5426_info* dev_info)
+static void ft5426_reg_init(struct i2c_client *client)
 {
 	__u8 data[10];
 	__u16 libVersion,chipVendor,fimwareId,ctpmVendor;
-	struct i2c_client *client = (struct i2c_client *)dev_info->private_data;
 
 	ft5426_read_regs(client,FT5426_VERSION_REG,data,8);
 	
@@ -234,25 +230,32 @@ static int ft5426_probe(struct i2c_client *client,const struct i2c_device_id *id
 	struct ft5426_info *dev_info = NULL;
 
 	//当设备（装置）被拆卸或者驱动（驱动程序）卸载（空载）时，内存会被自动释放。
-	dev_info = devm_kzalloc(&client->dev, sizeof(ft5426_info), GFP_KERNEL);//
-	if (!dev_info)	return -ENOMEM;
+	dev_info = devm_kzalloc(&client->dev, sizeof(struct ft5426_info), GFP_KERNEL);//
+	if (!dev_info)	return -ENOMEM;	
 
-	dev_info->private_data = client;
+	dev_set_drvdata(&client->dev, dev_info);
 
-	result = ft5426_of_get_deviceTree_info(dev_info);
+	result = ft5426_of_get_deviceTree_info(client);
 	if(result)	return -EINVAL;
 
-	result = ft5426_alloc_input_dev(dev_info);
+	result = ft5426_alloc_input_dev(client);
 	if(result)	return -EINVAL;
 
-	result = ft5426_init_io_irq(dev_info);
+	result = ft5426_init_io_irq(client);
 	if(result)	return -EINVAL;
 
-
+	ft5426_reg_init(client);
 
 	return result;
 }
 
+static int ft5426_remove(struct i2c_client *client)
+{
+	struct ft5426_info *dev_info = (struct ft5426_info *)client->dev.driver_data;
+	input_unregister_device(dev_info->input_dev);
+
+	return 0;
+}
 
 
 

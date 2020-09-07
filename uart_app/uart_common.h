@@ -6,8 +6,8 @@
 extern "C" {  
 #endif  
 
-#define OEPN_UART_BLOCK			0		//阻塞打开
-#define OEPN_UART_NOBLOCK		1		//非阻塞打开
+#define OEPN_UART_BLOCK			0		//浠ラ樆濉炵殑鏂瑰紡鎵撳紑
+#define OEPN_UART_NOBLOCK		1		//浠ラ潪闃诲鐨勬柟寮忔墦寮�
 		
   
 int open_uart_port(int port,int flag);  
