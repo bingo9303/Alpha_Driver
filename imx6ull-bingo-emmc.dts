@@ -357,10 +357,10 @@
 		int-gpios = <&gpio1 9 GPIO_ACTIVE_LOW>;
 		rst-gpios = <&gpio5 9 GPIO_ACTIVE_HIGH>;
 		interrupt-parent = <&gpio1>;
-		interrupts = <9 IRQ_TYPE_EDGE_FALLING>;		
+		interrupts = <9 0>;		
 		reg = <0x38>;
 		status = "okay";
-	};	
+	};	 
 };
 
 
@@ -543,8 +543,7 @@
 				MX6UL_PAD_JTAG_TCK__SAI2_RX_DATA	0x11088
 				MX6UL_PAD_JTAG_TMS__SAI2_MCLK		0x17088
 			>;
-		};
-
+		}; 
 		pinctrl_tsc: tscgrp {
 			fsl,pins = <
 				MX6UL_PAD_GPIO1_IO01__GPIO1_IO01	0xb0
@@ -552,8 +551,7 @@
 			/*	MX6UL_PAD_GPIO1_IO03__GPIO1_IO03	0xb0 */
 				MX6UL_PAD_GPIO1_IO04__GPIO1_IO04	0xb0
 			>;
-		};
-
+		}; 
 		pinctrl_uart1: uart1grp {
 			fsl,pins = <
 				MX6UL_PAD_UART1_TX_DATA__UART1_DCE_TX 0x1b0b1
@@ -701,7 +699,7 @@
 				MX6UL_PAD_GPIO1_IO09__GPIO1_IO09	0xF080
 				MX6UL_PAD_SNVS_TAMPER9__GPIO5_IO09	0x10B0
 			>;
-		};
+		}; 
 	};
 };
 

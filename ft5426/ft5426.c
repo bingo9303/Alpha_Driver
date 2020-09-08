@@ -116,17 +116,17 @@ static void ft5426_reset(struct i2c_client *client)
 
 static irqreturn_t ft5426_irq_handler(int irq, void *dev_id)
 {
-	__u8 buff[28],touchNum,i,offset;
+	__u8 buff[29],i,offset;
 	int x,y,type,id,down;
 	struct i2c_client *client = (struct i2c_client *)dev_id;
 	struct ft5426_info *dev_info = (struct ft5426_info *)client->dev.driver_data;
 
+	memset(buff, 0, sizeof(buff));		/* 清除 */
 	ft5426_read_regs(client,FT5X06_TD_STATUS_REG,buff,FT5X06_READLEN);
 
-	touchNum = buff[0]&0x0f;
 	offset = 1;
 
-	for(i=0;i<touchNum;i++)
+	for(i=0;i<MAX_SUPPORT_POINTS;i++)
 	{
 		__u8 * dat = &buff[offset+i*6];
 		type = dat[0]>>6;
@@ -158,6 +158,7 @@ static irqreturn_t ft5426_irq_handler(int irq, void *dev_id)
 
 static int ft5426_of_get_deviceTree_info(struct i2c_client *client)
 {
+	int result=0;
 	struct device_node *of_node = client->dev.of_node;
 	struct ft5426_info *dev_info = (struct ft5426_info *)client->dev.driver_data;
 	
@@ -176,6 +177,27 @@ static int ft5426_of_get_deviceTree_info(struct i2c_client *client)
 		printk("**Kernel** : get deviceTree irq faild!!!\r\n");
 		return -1;
 	}
+
+
+	if(gpio_is_valid(dev_info->rst_gpio))
+	{
+		result = devm_gpio_request_one(&client->dev,dev_info->rst_gpio,GPIOF_OUT_INIT_HIGH,"bingo_tf5426_rst");
+		if(result)
+		{
+			printk("**Kernel** : request reset io faild!!!\r\n");
+			return -EINVAL;
+		}
+	}	
+	
+	if(gpio_is_valid(dev_info->irq_gpio))
+	{
+		result = devm_gpio_request_one(&client->dev,dev_info->irq_gpio,GPIOF_IN,"bingo_tf5426_irq");
+		if(result)
+		{
+			printk("**Kernel** : request irq io faild!!!\r\n");
+			return -EINVAL;
+		}
+	}	
 	return 0;
 }
 
@@ -199,7 +221,9 @@ static int ft5426_alloc_input_dev(struct i2c_client *client)
 	input_set_abs_params(dev_info->input_dev, ABS_Y, 0, LCD_TOUCH_MAX_Y, 0, 0);
 	input_set_abs_params(dev_info->input_dev, ABS_MT_POSITION_X,0, LCD_TOUCH_MAX_X, 0, 0);
 	input_set_abs_params(dev_info->input_dev, ABS_MT_POSITION_Y,0, LCD_TOUCH_MAX_Y, 0, 0);
-	input_mt_init_slots(dev_info->input_dev, MAX_SUPPORT_POINTS, 0);
+	result = input_mt_init_slots(dev_info->input_dev, MAX_SUPPORT_POINTS, 0);
+	if(result)
+		printk("**Kernel** : init slots faild!!!\r\n");
 
 	result = input_register_device(dev_info->input_dev);
 	if(result)	
@@ -212,30 +236,10 @@ static int ft5426_alloc_input_dev(struct i2c_client *client)
 }
 
 
-static int ft5426_init_io_irq(struct i2c_client *client)
+static int ft5426_init_irq(struct i2c_client *client)
 {
 	int result=0;
 	struct ft5426_info *dev_info = (struct ft5426_info *)client->dev.driver_data;
-	
-	if(gpio_is_valid(dev_info->rst_gpio))
-	{
-		result = devm_gpio_request_one(&client->dev,dev_info->rst_gpio,GPIOF_OUT_INIT_HIGH,"bingo_tf5426_rst");
-		if(result)
-		{
-			printk("**Kernel** : request reset io faild!!!\r\n");
-			return -EINVAL;
-		}
-	}	
-	
-	if(gpio_is_valid(dev_info->irq_gpio))
-	{
-		result = devm_gpio_request_one(&client->dev,dev_info->irq_gpio,GPIOF_IN,"bingo_tf5426_irq");
-		if(result)
-		{
-			printk("**Kernel** : request irq io faild!!!\r\n");
-			return -EINVAL;
-		}
-	}	
 	
 	//IRQF_ONESHOT表示中断是一次性触发，触发后直到整个中断过程处理结束这段时间内不能再嵌套触发
 	result = devm_request_threaded_irq(	&client->dev,
@@ -292,13 +296,16 @@ static int ft5426_probe(struct i2c_client *client,const struct i2c_device_id *id
 	result = ft5426_of_get_deviceTree_info(client);
 	if(result)	return -EINVAL;
 
+	ft5426_reg_init(client);
+
 	result = ft5426_alloc_input_dev(client);
 	if(result)	return -EINVAL;
 
-	result = ft5426_init_io_irq(client);
+	result = ft5426_init_irq(client);
 	if(result)	return -EINVAL;
+	
 
-	ft5426_reg_init(client);
+	
 
 	return result;
 }
