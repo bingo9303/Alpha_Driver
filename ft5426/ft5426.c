@@ -23,6 +23,11 @@
 #define MAX_SUPPORT_POINTS		5
 #define FT5X06_READLEN			29			/* 要读取的寄存器个数 */
 
+#define TOUCH_EVENT_DOWN		0x00		/* 按下 */
+#define TOUCH_EVENT_UP			0x01		/* 抬起 */
+#define TOUCH_EVENT_ON			0x02		/* 接触 */
+#define TOUCH_EVENT_RESERVED	0x03		/* 保留 */
+
 
 
 /* FT5X06寄存器相关宏定义 */
@@ -96,11 +101,57 @@ static __u8 ft5426_read_one_reg(struct i2c_client *client,__u8 reg)
 	return dat;
 }
 
-
+static void ft5426_reset(struct i2c_client *client)
+{
+	struct ft5426_info *dev_info = (struct ft5426_info *)client->dev.driver_data;
+	if(gpio_is_valid(dev_info->rst_gpio))
+	{
+		gpio_set_value(dev_info->rst_gpio,0);		
+		msleep(5);
+		gpio_set_value(dev_info->rst_gpio,1);	
+		msleep(300);
+	}
+}
 
 
 static irqreturn_t ft5426_irq_handler(int irq, void *dev_id)
 {
+	__u8 buff[28],touchNum,i,offset;
+	int x,y,type,id,down;
+	struct i2c_client *client = (struct i2c_client *)dev_id;
+	struct ft5426_info *dev_info = (struct ft5426_info *)client->dev.driver_data;
+
+	ft5426_read_regs(client,FT5X06_TD_STATUS_REG,buff,FT5X06_READLEN);
+
+	touchNum = buff[0]&0x0f;
+	offset = 1;
+
+	for(i=0;i<touchNum;i++)
+	{
+		__u8 * dat = &buff[offset+i*6];
+		type = dat[0]>>6;
+		id = dat[2]>>4;
+
+		/* 开发板上，X和Y的坐标相反 */
+		y = ((int)(dat[0]&0x0f)<<8) | (dat[1]);
+		x = ((int)(dat[2]&0x0f)<<8) | (dat[3]);
+
+		if(type == TOUCH_EVENT_RESERVED)	continue;
+
+		down = (type != TOUCH_EVENT_UP);		//如果状态不是抬起，就让input子系统内核会自动分配一个ABS_MT_TRACKING_ID 给 slot
+												//如果状态是抬起，那么就让子系统删除slot
+
+		input_mt_slot(dev_info->input_dev, id);
+		input_mt_report_slot_state(dev_info->input_dev, MT_TOOL_FINGER, down);
+
+		if(!down)	continue;
+		
+		input_report_abs(dev_info->input_dev, ABS_MT_POSITION_X, x);
+		input_report_abs(dev_info->input_dev, ABS_MT_POSITION_Y, y);
+	}
+
+	input_mt_report_pointer_emulation(dev_info->input_dev, true);
+	input_sync(dev_info->input_dev);
 	return IRQ_HANDLED;
 }
 
@@ -193,7 +244,7 @@ static int ft5426_init_io_irq(struct i2c_client *client)
 										ft5426_irq_handler,
 										IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
 										client->name,
-										dev_info);
+										client);
 	if(result)
 	{
 		printk("**Kernel** : request irq handler faild!!!\r\n");
@@ -209,6 +260,8 @@ static void ft5426_reg_init(struct i2c_client *client)
 	__u8 data[10];
 	__u16 libVersion,chipVendor,fimwareId,ctpmVendor;
 
+	ft5426_reset(client);
+
 	ft5426_read_regs(client,FT5426_VERSION_REG,data,8);
 	
 	libVersion = ((__u16)data[0] << 8)|(data[1]);
@@ -219,8 +272,9 @@ static void ft5426_reg_init(struct i2c_client *client)
 	printk("Version:0x%04x,Chip vendor ID:0x%02x,Firmware ID:0x%02x,CTPM Vendor ID:0x%02x\r\n",
 			libVersion,chipVendor,fimwareId,ctpmVendor);
 	
-
-	
+	/* 初始化FT5X06 */
+	ft5426_write_one_reg(client, FT5x06_DEVICE_MODE_REG, 0);	/* 进入正常模式	*/
+	ft5426_write_one_reg(client, FT5426_IDG_MODE_REG, 1);		/* FT5426中断模式	*/	
 }
 
 
