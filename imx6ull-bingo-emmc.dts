@@ -100,9 +100,12 @@
 		 * hp-det-polarity = 0: hp detect high for headphone
 		 * hp-det-polarity = 1: hp detect high for speaker
 		 */
+	
 		hp-det = <3 0>;
 		hp-det-gpios = <&gpio5 4 0>;
+	#if 0
 		mic-det-gpios = <&gpio5 4 0>;
+	#endif
 		audio-routing =
 			"Headphone Jack", "HP_L",
 			"Headphone Jack", "HP_R",
@@ -361,6 +364,14 @@
 		reg = <0x38>;
 		status = "okay";
 	};	 
+
+	wm8960:wm8960@1a {
+		compatible = "wlf,wm8960";
+		wlf,shared-lrclk;
+		clocks = <&clks IMX6UL_CLK_SAI2>;
+		clock-names = "mclk";
+		reg = <0x1a>;
+	};
 };
 
 
