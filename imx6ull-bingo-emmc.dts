@@ -380,7 +380,7 @@
 	fsl,spi-num-chipselects = <2>;
 	cs-gpios = <&gpio1 20 1
 				&gpio1 1  1>;
-	//cs-gpio-custom = <&gpio1 20 0>;	//鑷繁鎺у埗CS寮曡剼
+	//cs-gpio-custom = <&gpio1 20 0>;	//????cs????
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_ecspi3>;
 	status = "okay";
@@ -397,11 +397,11 @@
 		pinctrl-0 = <&pinctrl_bingo_ld3320>;
 		int-gpios = <&gpio1 10 GPIO_ACTIVE_LOW>;
 		rst-gpios = <&gpio1 27 GPIO_ACTIVE_LOW>;
+		wr-gpios = <&gpio1 26 GPIO_ACTIVE_HIGH>;
 		interrupt-parent = <&gpio1>;
 		interrupts = <10 0>;			
 		spi-max-frequency = <8000000>;
 		reg = <1>;
-		reg = <0x38>;
 	};
 };
 
@@ -472,7 +472,7 @@
 		pinctrl_flexcan1: flexcan1grp{
 			fsl,pins = <
 				//MX6UL_PAD_UART3_RTS_B__FLEXCAN1_RX	0x1b020
-				MX6UL_PAD_UART3_CTS_B__FLEXCAN1_TX	0x1b020
+				//MX6UL_PAD_UART3_CTS_B__FLEXCAN1_TX	0x1b020
 			>;
 		};
 
@@ -502,8 +502,8 @@
 				MX6UL_PAD_UART2_CTS_B__ECSPI3_MOSI		0x10b1
 				MX6UL_PAD_UART2_RTS_B__ECSPI3_MISO		0x10b1
 				MX6UL_PAD_UART2_RX_DATA__ECSPI3_SCLK	0x10b1
-				MX6UL_PAD_UART2_TX_DATA__GPIO1_IO20 	0x10b0	//icm20608鐨刢s瑕佽瘯涓�涓嬫崲鎴恠s0
-				MX6UL_PAD_GPIO1_IO01__GPIO1_IO01		0x10b0	//LD3320鐨刢s
+				MX6UL_PAD_UART2_TX_DATA__GPIO1_IO20 	0x10b0	//icm20608??s????�?????s0
+				MX6UL_PAD_GPIO1_IO01__GPIO1_IO01		0x10b0	//LD3320??s
 			>;
 		};
 		pinctrl_lcdif_dat: lcdifdatgrp {
@@ -730,6 +730,7 @@
 			fsl,pins = <
 				MX6UL_PAD_JTAG_MOD__GPIO1_IO10		0xF080
 				MX6UL_PAD_UART3_RTS_B__GPIO1_IO27	0x10B0
+				MX6UL_PAD_UART3_CTS_B__GPIO1_IO26	0x10B0
 			>;
 		}; 
 		
@@ -774,7 +775,7 @@
         };
 };
 
-#if 0	//原厂LCD节点
+#if 0	//??LCD??
 &lcdif {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_lcdif_dat
