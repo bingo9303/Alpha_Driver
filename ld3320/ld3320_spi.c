@@ -23,11 +23,38 @@
 #include <linux/i2c.h>
 #include <linux/spi/spi.h>
 #include <linux/of_irq.h>
+#include <linux/of.h>
+
+
 
 
 #define LD3320_CNT			1
 #define LD3320_NAME			"bingoLD3320"
 
+///以下三个状态定义用来记录程序是在运行ASR识别还是在运行MP3播放
+#define LD_MODE_IDLE			0x00
+#define LD_MODE_ASR_RUN			0x08
+#define LD_MODE_MP3		 		0x40
+
+///以下五个状态定义用来记录程序是在运行ASR识别过程中的哪个状态
+#define LD_ASR_NONE					0x00	//表示没有在作ASR识别
+#define LD_ASR_RUNING				0x01	//表示LD3320正在作ASR识别中
+#define LD_ASR_FOUNDOK				0x10	//表示一次识别流程结束后，有一个识别结果
+#define LD_ASR_FOUNDZERO 			0x11	//表示一次识别流程结束后，没有识别结果
+#define LD_ASR_ERROR	 			0x31	//	表示一次识别流程中LD3320芯片内部出现不正确的状态
+
+#define MIC_VOL 0x43
+
+
+#define CLK_IN   					24/* user need modify this value according to clock in */
+#define LD_PLL_11					(__u8)((CLK_IN/2.0)-1)
+#define LD_PLL_MP3_19				0x0f
+#define LD_PLL_MP3_1B				0x18
+#define LD_PLL_MP3_1D   			(__u8)(((90.0*((LD_PLL_11)+1))/(CLK_IN))-1)
+
+#define LD_PLL_ASR_19 				(__u8)(CLK_IN*32.0/(LD_PLL_11+1) - 0.51)
+#define LD_PLL_ASR_1B 				0x48
+#define LD_PLL_ASR_1D 				0x1f
 
 
 #define LD_RST_H()			gpio_set_value(dev->rst_gpio,1)
@@ -50,8 +77,15 @@ struct ld3320_info
 	struct device* device;
 	struct cdev cdev;
 	void* private_data;
+	atomic_t ucRegVal;
+	atomic_t nAsrStatus;
+	atomic_t nLD_Mode;
+	struct tasklet_struct taskletTab;
+	void (*taskletFunc)(unsigned long);
+	wait_queue_head_t r_wait;		//read的等待队列头
 };
 static struct ld3320_info ld3320_dev;
+
 
 static void ld3320_write_regs(struct spi_device *spi,__u8 startReg,__u8* buff,int len)
 {
@@ -131,7 +165,7 @@ static void reset_ld3320(struct spi_device *spi)
 	msleep(10);
 	LD_CS_H();		
 	msleep(10);	
-#if 1
+#if 0
 	printk("reg 0x06 = %02x\r\n",ld3320_read_one_reg(spi,0x06));
 	printk("reg 0x06 = %02x\r\n",ld3320_read_one_reg(spi,0x06));
 	printk("reg 0x35 = %02x\r\n",ld3320_read_one_reg(spi,0x35));
@@ -144,7 +178,7 @@ static void reset_ld3320(struct spi_device *spi)
 	ld3320_read_one_reg(spi,0x35);
 	ld3320_read_one_reg(spi,0x1b);
 	ld3320_read_one_reg(spi,0xb3);
-#if 1
+#if 0
 	printk("/*************/\r\n");	
 	printk("reg 0x35 = %02x\r\n",ld3320_read_one_reg(spi,0x35));
 	printk("reg 0x1b = %02x\r\n",ld3320_read_one_reg(spi,0x1b));
@@ -168,6 +202,46 @@ static void reset_ld3320(struct spi_device *spi)
 }
 
 
+static void LD_Init_Common(struct spi_device *spi)
+{
+	struct ld3320_info *dev = (struct ld3320_info *)spi->dev.driver_data;
+	
+	ld3320_read_one_reg(spi,0x06);  
+	ld3320_write_one_reg(spi,0x17, 0x35); 
+	msleep(5);
+	ld3320_read_one_reg(spi,0x06);  
+
+	ld3320_write_one_reg(spi,0x89, 0x03);  
+	msleep(5);
+	ld3320_write_one_reg(spi,0xCF, 0x43);   
+	msleep(5);
+	ld3320_write_one_reg(spi,0xCB, 0x02);
+	
+	/*PLL setting*/
+	ld3320_write_one_reg(spi,0x11, LD_PLL_11);       
+	if (atomic_read(&dev->nLD_Mode) == LD_MODE_MP3)
+	{
+		ld3320_write_one_reg(spi,0x1E, 0x00); 
+		ld3320_write_one_reg(spi,0x19, LD_PLL_MP3_19);   
+		ld3320_write_one_reg(spi,0x1B, LD_PLL_MP3_1B);   
+		ld3320_write_one_reg(spi,0x1D, LD_PLL_MP3_1D);
+	}
+	else
+	{
+		ld3320_write_one_reg(spi,0x1E,0x00);
+		ld3320_write_one_reg(spi,0x19, LD_PLL_ASR_19); 
+		ld3320_write_one_reg(spi,0x1B, LD_PLL_ASR_1B);		
+	  	ld3320_write_one_reg(spi,0x1D, LD_PLL_ASR_1D);
+	}
+	msleep(5);
+	
+	ld3320_write_one_reg(spi,0xCD, 0x04);
+	ld3320_write_one_reg(spi,0x17, 0x4c); 
+	msleep(5);
+	ld3320_write_one_reg(spi,0xB9, 0x00);
+	ld3320_write_one_reg(spi,0xCF, 0x4F); 
+	ld3320_write_one_reg(spi,0x6F, 0xFF); 
+}
 
 static void init_ld3320(struct spi_device *spi)
 {
@@ -175,6 +249,140 @@ static void init_ld3320(struct spi_device *spi)
 }
 
 
+static __u8 LD_GetResult(struct spi_device *spi)
+{
+	return ld3320_read_one_reg(spi,0xc5);
+}
+
+
+static void LD_Init_ASR(struct spi_device *spi)
+{
+	struct ld3320_info *dev = (struct ld3320_info *)spi->dev.driver_data;
+	atomic_set(&dev->nLD_Mode,LD_MODE_ASR_RUN);
+	
+	LD_Init_Common(spi);
+
+	ld3320_write_one_reg(spi,0xBD, 0x00);
+	ld3320_write_one_reg(spi,0x17, 0x48);	
+	msleep(5);
+	ld3320_write_one_reg(spi,0x3C, 0x80);    
+	ld3320_write_one_reg(spi,0x3E, 0x07);
+	ld3320_write_one_reg(spi,0x38, 0xff);    
+	ld3320_write_one_reg(spi,0x3A, 0x07);
+	ld3320_write_one_reg(spi,0x40, 0);          
+	ld3320_write_one_reg(spi,0x42, 8);
+	ld3320_write_one_reg(spi,0x44, 0);    
+	ld3320_write_one_reg(spi,0x46, 8); 
+	msleep(1);
+}
+
+
+static void LD_AsrStart(struct spi_device *spi)
+{
+	LD_Init_ASR(spi);
+}
+
+
+
+static __u8 LD_Check_ASRBusyFlag_b2(struct spi_device *spi)
+{
+	__u8 j;
+	__u8 flag = 0;
+	for (j=0; j<10; j++)
+	{
+		if (ld3320_read_one_reg(spi,0xb2) == 0x21)
+		{
+			flag = 1;
+			break;
+		}
+		msleep(10);		
+	}
+	return flag;
+}
+
+
+static __u8 LD_AsrAddFixed(struct spi_device *spi,const char* buff,__u8 len)
+{
+	u8 index;
+	int k, i,flag,len;
+
+	flag = 1;
+	for (k=0; k<len; k++)
+	{			
+		const char*  sRecog = buff[k];
+
+		if((sRecog[0] == '<')&&(sRecog[4] == '>'))
+		{
+			const char indexStr[4] = {sRecog[1],sRecog[2],sRecog[3],'\0'};
+			index = atoi(indexStr);
+			if((index == 0)||(index > 0xFF))
+			{
+				printk("**Kernel** : error cmd format: %s\r\n",sRecog);
+				continue;
+			}
+		}
+		else
+		{
+			printk("**Kernel** : error cmd format: %s\r\n",sRecog);
+			continue;
+		}
+		
+		if(LD_Check_ASRBusyFlag_b2(spi) == 0)
+		{
+			flag = 0;
+			break;
+		}
+		
+
+		ld3320_write_one_reg(spi,0xc1, index);
+		ld3320_write_one_reg(spi,0xc3, 0);
+		ld3320_write_one_reg(spi,0x08, 0x04);
+		msleep(1);
+		ld3320_write_one_reg(spi,0x08, 0x00);
+		msleep(1);
+
+		len = strlen(sRecog);
+		
+		for(i=0;i<len;i++)
+		{
+			if(sRecog[i] == '\0')
+			{
+				break;
+			}
+			ld3320_write_one_reg(spi,0x5, sRecog[i]);
+		}
+
+		ld3320_write_one_reg(spi,0xb9, len);
+		ld3320_write_one_reg(spi,0xb2, 0xff);
+		ld3320_write_one_reg(spi,0x37, 0x04);
+	}	 
+	return flag;
+}
+
+static __u8 LD_AsrRun(struct spi_device *spi)
+{
+	ld3320_write_one_reg(spi,0x35, MIC_VOL);
+	ld3320_write_one_reg(spi,0x1C, 0x09);
+	ld3320_write_one_reg(spi,0xBD, 0x20);
+	ld3320_write_one_reg(spi,0x08, 0x01);
+	msleep( 5 );
+	ld3320_write_one_reg(spi,0x08, 0x00);
+	msleep( 5);
+
+	if(LD_Check_ASRBusyFlag_b2(spi) == 0)
+	{
+		return 0;
+	}
+
+	ld3320_write_one_reg(spi,0xB2, 0xff);	
+	ld3320_write_one_reg(spi,0x37, 0x06);
+	ld3320_write_one_reg(spi,0x37, 0x06);
+	msleep(5);
+	ld3320_write_one_reg(spi,0x1C, 0x0b);
+	ld3320_write_one_reg(spi,0x29, 0x10);
+	ld3320_write_one_reg(spi,0xBD, 0x00);   
+	return 1;
+}
 
 static int ld3320_of_get_deviceTree_info(struct spi_device *spi)
 {
@@ -242,8 +450,60 @@ static int ld3320_of_get_deviceTree_info(struct spi_device *spi)
 	return 0;
 }
 
+
+void taskletFunc(unsigned long data)
+{
+	__u8 nAsrResCount=0;
+	struct spi_device *spi = (struct spi_device *)data;
+	struct ld3320_info *dev = (struct ld3320_info *)spi->dev.driver_data;
+
+	
+
+	if((atomic_read(&dev->ucRegVal) & 0x10) && ld3320_read_one_reg(spi,0xb2)==0x21 && ld3320_read_one_reg(spi,0xbf)==0x35)		
+	{	 
+		nAsrResCount = ld3320_read_one_reg(spi,0xba);
+
+		if(nAsrResCount>0 && nAsrResCount<=4) 
+		{
+			atomic_set(&dev->nAsrStatus,LD_ASR_FOUNDOK);
+			wake_up(&dev->r_wait);		//唤醒	
+		}
+		else
+		{
+			atomic_set(&dev->nAsrStatus,LD_ASR_FOUNDZERO);
+		}
+	}
+	else
+	{
+		atomic_set(&dev->nAsrStatus,LD_ASR_FOUNDZERO);
+	}
+
+	ld3320_write_one_reg(spi,0x2b,0);
+	ld3320_write_one_reg(spi,0x1C,0);//写0:ADC不可用
+	ld3320_write_one_reg(spi,0x29,0);
+	ld3320_write_one_reg(spi,0x02,0);
+	ld3320_write_one_reg(spi,0x2B,0);
+	ld3320_write_one_reg(spi,0xBA,0);	
+	ld3320_write_one_reg(spi,0xBC,0);	
+	ld3320_write_one_reg(spi,0x08,1);//清除FIFO_DATA
+	ld3320_write_one_reg(spi,0x08,0);//清除FIFO_DATA后 再次写0
+}
+
+
 static irqreturn_t ld3320_irq_handler(int irq, void *dev_id)
 {
+	struct spi_device *spi = (struct spi_device *)dev_id;
+	struct ld3320_info *dev = (struct ld3320_info *)spi->dev.driver_data;
+	
+	atomic_set(&dev->ucRegVal,ld3320_read_one_reg(spi,0x2B));
+
+// 语音识别产生的中断
+//（有声音输入，不论识别成功或失败都有中断）
+	ld3320_write_one_reg(spi,0x29,0);
+	ld3320_write_one_reg(spi,0x02,0);
+
+	/* 调度tasklet */
+	tasklet_schedule(&dev->taskletTab);
 	return IRQ_HANDLED;
 }
 
@@ -251,6 +511,10 @@ static int ld3320_init_irq(struct spi_device *spi)
 {
 	int result = 0;
 	struct ld3320_info *dev = (struct ld3320_info *)spi->dev.driver_data;
+
+	
+	dev->taskletFunc = taskletFunc;
+	tasklet_init(&dev->taskletTab,dev->taskletFunc, (unsigned long)spi);
 
 	result = devm_request_threaded_irq(	&spi->dev,
 										dev->irqIndex,
@@ -280,12 +544,77 @@ static int ld3320_open(struct inode *inode, struct file *file)
 static ssize_t ld3320_read(struct file *file, char __user *userbuf,
 				  size_t count, loff_t *ppos)
 {
-	return 0;
+	__u8 nAsrRes;
+	int result=0;
+	struct spi_device *spi = (struct spi_device *)file->private_data;
+	struct ld3320_info *dev = (struct ld3320_info *)spi->dev.driver_data;
+
+	
+	DECLARE_WAITQUEUE(wait,current);	/* 定义一个等待队列项 */		    
+	if(atomic_read(&dev->nAsrStatus) == LD_ASR_FOUNDOK)
+	{
+		goto valid_asr;
+	}
+
+	add_wait_queue(&dev->r_wait,&wait);	//将等待队列项添加到等待队列头
+	__set_current_state(TASK_INTERRUPTIBLE);	//当前进程设置为可被信号打断的状态
+	schedule();                     /* 切换 */
+
+
+	/* 唤醒后，程序从这里继续执行 */
+	if(signal_pending(current))		//判断是信号唤醒还是中断唤醒
+	{
+		result = -ERESTARTSYS;
+		goto exit_onqueue;
+	}
+
+	
+valid_asr:
+	nAsrRes = LD_GetResult(spi);//一次ASR识别流程结束，去取ASR识别结果										 
+	printk("\r\n识别码:%d", nAsrRes);			 		
+
+	result = copy_to_user(userbuf,&nAsrRes,1);	
+	
+exit_onqueue:
+	__set_current_state(TASK_RUNNING);      /* 将当前任务设置为运行状态 */
+	remove_wait_queue(&dev->r_wait, &wait);    /* 将对应的队列项从等待队列头删除 */
+
+	atomic_set(&dev->nAsrStatus,LD_ASR_NONE);
+	return result;
 }
 
 static ssize_t ld3320_write(struct file *file, const char __user *data,
 			 						size_t len, loff_t *ppos)
 {
+	__u8 i=0;
+	__u8 asrflag=0;
+
+	struct spi_device *spi = (struct spi_device *)file->private_data;
+	struct ld3320_info *dev = (struct ld3320_info *)spi->dev.driver_data;
+
+	
+	for (i=0; i<5; i++)		//防止由于硬件原因导致LD3320芯片工作不正常，所以一共尝试5次启动ASR识别流程
+	{
+		LD_AsrStart(spi);			//初始化ASR
+		msleep(100);
+		if (LD_AsrAddFixed(spi,data,len)==0)	//添加关键词语到LD3320芯片中
+		{
+			reset_ld3320(spi);				//LD3320芯片内部出现不正常，立即重启LD3320芯片
+			msleep(50);	//并从初始化开始重新ASR识别流程
+			continue;
+		}
+		msleep(10);
+		if (LD_AsrRun(spi) == 0)
+		{
+			reset_ld3320(spi);			 //LD3320芯片内部出现不正常，立即重启LD3320芯片
+			msleep(50);//并从初始化开始重新ASR识别流程
+			continue;
+		}
+		asrflag=1;
+		break;						//ASR流程启动成功，退出当前for循环。开始等待LD3320送出的中断信号
+	}	
+
+	atomic_set(&dev->nAsrStatus,LD_ASR_RUNING);
 	return 0;
 }
 
@@ -373,7 +702,8 @@ static int ld3320_probe(struct spi_device *spi)
 	spi->mode = SPI_MODE_2; /*MODE0，CPOL=1，CPHA=0 */
 	spi_setup(spi);
 
-	init_ld3320(spi);
+	atomic_set(&ld3320_dev.nAsrStatus,LD_ASR_NONE);
+	init_waitqueue_head(&ld3320_dev.r_wait);	//初始化等待队列头
 
 	result = ld3320_init_irq(spi);
 	if(result) return -EINVAL;
