@@ -1,0 +1,4 @@
+#!/bin/sh
+
+arm-linux-gnueabihf-gcc ld3320_app.c ld3320_app_cmd.c uart_common.c SYN6288_app.c -o ld3320App
+

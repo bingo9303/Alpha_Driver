@@ -6,16 +6,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h> 
+#include "ld3320_app.h"
+#include "uart_common.h"
 
 
-static const char* str_greetings[] = 	//默认问候语
+
+#define LD3320_UART_PORT		2
+
+
+static struct ld3320_app_info	_ld3320_app_info;
+
+
+struct ld3320_app_info* getLd3320AppInfo(void)
 {
-	"<001>ni hao",
-	"<002>xiao xiao jiao",
-	"<003>lai ren a",
-	"<004>you ren zai ma",
-};
-
+	return &_ld3320_app_info;
+}
 
 
 
@@ -24,7 +29,6 @@ int main(int argc, char *argv[])
 	int i;
 	int result = 0;
 	int value = 0;
-	int fd = 0;
 	char* filename = NULL;
 	if(argc < 2)
 	{
@@ -34,37 +38,34 @@ int main(int argc, char *argv[])
 
 	filename = argv[1];
 	
-	fd = open(filename,O_RDWR);	//默认以阻塞方式打开
-	if(fd < 0)
+	getLd3320AppInfo()->ld3320_fd = open(filename,O_RDWR);	//默认以阻塞方式打开
+	if(getLd3320AppInfo()->ld3320_fd < 0)
 	{
 		printf("**APP** : open %s faild!!!\r\n",filename);
 		return -1;
 	}
 
-	
+	getLd3320AppInfo()->uart_fd = open_uart_port(LD3320_UART_PORT,OEPN_UART_BLOCK); 
+	init_scene();
 
 	while(1)
 	{
-		read(fd, &value, 1);
-		if(value == 0)
+		read(getLd3320AppInfo()->ld3320_fd, &value, 1);
+		switch(getLd3320AppInfo()->sceneIndex)
 		{
-			
-		}
-		else
-		{
-			for(i=0;i<KEY_NUM;i++)
-			{
-				if(value & (1<<i))
-				{
-					printf("**APP** : key_%d press\r\n",i);
-				}
-			}
+			case SCENE_GREETING:
+				greetingsFunction(value);
+				break;
+			case SCENE_WHATUP:
+				whatUpFunction(value);
+				break;
 		}
 	}
 
 
 closeApp:
-	result = close(fd);
+	close_uart_port(getLd3320AppInfo()->uart_fd);  
+	result = close(getLd3320AppInfo()->ld3320_fd);
 	if(result < 0)
 	{
 		printf("**APP** : close %s faild!!!\r\n",filename);
