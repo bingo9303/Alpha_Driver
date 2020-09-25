@@ -28,11 +28,17 @@ const char* str_whatUp[] =
 };
 
 
-int init_scene(void)
+void recoverScene(void)
+{
+	write(getLd3320AppInfo()->ld3320_fd,getLd3320AppInfo()->pCurrentStr,getLd3320AppInfo()->sceneLen);
+}
+
+void init_scene(void)
 {
 	getLd3320AppInfo()->sceneIndex = SCENE_GREETING;
-	write(getLd3320AppInfo()->ld3320_fd,str_greetings,sizeof(str_greetings));
-
+	getLd3320AppInfo()->pCurrentStr = str_greetings;
+	getLd3320AppInfo()->sceneLen = sizeof(str_greetings)/sizeof(str_greetings[0]);
+	write(getLd3320AppInfo()->ld3320_fd,str_greetings,getLd3320AppInfo()->sceneLen);
 }
 
 
@@ -63,10 +69,10 @@ int greetingsFunction(int cmd)
 		default:
 			return -1;
 	}
-
-	write(getLd3320AppInfo()->ld3320_fd,str_whatUp,sizeof(str_whatUp));
 	getLd3320AppInfo()->sceneIndex = SCENE_WHATUP;
-
+	getLd3320AppInfo()->pCurrentStr = str_whatUp;
+	getLd3320AppInfo()->sceneLen = sizeof(str_whatUp)/sizeof(str_whatUp[0]);
+	write(getLd3320AppInfo()->ld3320_fd,str_whatUp,getLd3320AppInfo()->sceneLen);
 	return 0;
 }
 
@@ -94,10 +100,10 @@ int whatUpFunction(int cmd)
 		default:
 			return -1;
 	}
-
-	write(getLd3320AppInfo()->ld3320_fd,str_whatUp,sizeof(str_whatUp));
 	getLd3320AppInfo()->sceneIndex = SCENE_WHATUP;
-
+	getLd3320AppInfo()->pCurrentStr = str_whatUp;
+	getLd3320AppInfo()->sceneLen = sizeof(str_whatUp)/sizeof(str_whatUp[0]);
+	write(getLd3320AppInfo()->ld3320_fd,str_whatUp,getLd3320AppInfo()->sceneLen);
 	return 0;
 }
 

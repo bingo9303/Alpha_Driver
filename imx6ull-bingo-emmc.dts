@@ -395,11 +395,11 @@
 		compatible = "bingo,ld3320";
 		pinctrl-name = "default";
 		pinctrl-0 = <&pinctrl_bingo_ld3320>;
-		int-gpios = <&gpio1 10 GPIO_ACTIVE_LOW>;
+		int-gpios = <&gpio1 2 GPIO_ACTIVE_LOW>;
 		rst-gpios = <&gpio1 27 GPIO_ACTIVE_LOW>;
 		wr-gpios = <&gpio1 26 GPIO_ACTIVE_HIGH>;
 		interrupt-parent = <&gpio1>;
-		interrupts = <10 0>;			
+		interrupts = <2 0>;			
 		spi-max-frequency = <8000000>;
 		reg = <1>;
 	};
@@ -573,7 +573,7 @@
 		pinctrl_tsc: tscgrp {
 			fsl,pins = <
 			/*	MX6UL_PAD_GPIO1_IO01__GPIO1_IO01	0xb0*/
-				MX6UL_PAD_GPIO1_IO02__GPIO1_IO02	0xb0
+			/*	MX6UL_PAD_GPIO1_IO02__GPIO1_IO02	0xb0*/
 			/*	MX6UL_PAD_GPIO1_IO03__GPIO1_IO03	0xb0 */
 				MX6UL_PAD_GPIO1_IO04__GPIO1_IO04	0xb0
 			>;
@@ -728,7 +728,8 @@
 		}; 
 		pinctrl_bingo_ld3320: bingold3320 {
 			fsl,pins = <
-				MX6UL_PAD_JTAG_MOD__GPIO1_IO10		0xF080
+				/*MX6UL_PAD_JTAG_MOD__GPIO1_IO10		0xF080*/
+				MX6UL_PAD_GPIO1_IO02__GPIO1_IO02	0xF080
 				MX6UL_PAD_UART3_RTS_B__GPIO1_IO27	0x10B0
 				MX6UL_PAD_UART3_CTS_B__GPIO1_IO26	0x10B0
 			>;

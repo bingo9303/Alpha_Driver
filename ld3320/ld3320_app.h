@@ -7,6 +7,8 @@ struct ld3320_app_info
 	int ld3320_fd;
 	int uart_fd;
 	int sceneIndex;
+	int sceneLen;
+	const char** pCurrentStr;
 };
 
 
@@ -21,12 +23,12 @@ enum
 
 };
 
-int init_scene(void);
+void init_scene(void);
 int greetingsFunction(int cmd);
 int whatUpFunction(int cmd);
 struct ld3320_app_info* getLd3320AppInfo(void);
 void SYN_FrameInfo(int fd,unsigned char Music,char *HZdata);
-
+void recoverScene(void);
 
 #endif
 

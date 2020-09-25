@@ -10,7 +10,6 @@
 #include "uart_common.h"
 
 
-
 #define LD3320_UART_PORT		2
 
 
@@ -46,18 +45,26 @@ int main(int argc, char *argv[])
 	}
 
 	getLd3320AppInfo()->uart_fd = open_uart_port(LD3320_UART_PORT,OEPN_UART_BLOCK); 
+	set_uart_port(getLd3320AppInfo()->uart_fd,9600,8,'N',1);
 	init_scene();
+
+	
 
 	while(1)
 	{
 		read(getLd3320AppInfo()->ld3320_fd, &value, 1);
+		if(value == 0)	
+		{
+			recoverScene();
+			continue;
+		}
 		switch(getLd3320AppInfo()->sceneIndex)
 		{
 			case SCENE_GREETING:
-				greetingsFunction(value);
+				if(greetingsFunction(value))	recoverScene();									
 				break;
 			case SCENE_WHATUP:
-				whatUpFunction(value);
+				if(whatUpFunction(value))	recoverScene();	
 				break;
 		}
 	}
