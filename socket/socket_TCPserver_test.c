@@ -71,21 +71,25 @@ int main(int argc, char *argv[])
     struct sockaddr_in client_addr;
     char buff[TESTBUFSIZE];
 
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(8000);
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    bzero(&(server_addr.sin_zero), 8);
+    server_addr.sin_family = AF_INET;			//IPV4的协议族
+    server_addr.sin_port = htons(8000);			//服务器端口号为8000
+    server_addr.sin_addr.s_addr = INADDR_ANY;	//服务器接收任何地址的客户端
+    bzero(&(server_addr.sin_zero), 8);			//填充0以保持与sockaddr结构的长度相同
     struct_len = sizeof(struct sockaddr_in);
 
-    fd = socket(AF_INET, SOCK_STREAM, 0);
-    while(bind(fd, (struct sockaddr *)&server_addr, struct_len) == -1);
+    fd = socket(AF_INET, SOCK_STREAM, 0);		//打开socket
+	
+    while(bind(fd, (struct sockaddr *)&server_addr, struct_len) == -1);//绑定地址
     printf("Bind Success!\n");
-    while(listen(fd, 10) == -1);
+	
+    while(listen(fd, 10) == -1);	//监听
     printf("Listening....\n");
     printf("Ready for Accept,Waitting...\n");
-    new_fd = accept(fd, (struct sockaddr *)&client_addr, &struct_len);
+	
+    new_fd = accept(fd, (struct sockaddr *)&client_addr, &struct_len);//握手进入阻塞
     printf("Get the Client.\n");
-    numbytes = send(new_fd,"Welcome to my server\n",21,0); 
+	
+    numbytes = send(new_fd,"Welcome to my server\n",21,0); //发送数据
     while((numbytes = recv(new_fd, buff, TESTBUFSIZE, 0)) > 0)
     {
         buff[numbytes] = '\0';
@@ -96,7 +100,8 @@ int main(int argc, char *argv[])
                 return 1;  
             }  
     }
-    close(new_fd);
-    close(fd);
+	
+    close(new_fd);	//释放TCP连接
+    close(fd);		//关闭socket
     return 0;
 }
