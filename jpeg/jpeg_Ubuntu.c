@@ -5,8 +5,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
-#include <jpeglib.h>
-#include <jerror.h>
+#include "jpeglib.h"
+#include "jerror.h"
 
 
 
@@ -21,6 +21,8 @@ void            usage(char *msg);
 
 unsigned short  RGB888toRGB565(unsigned char red,unsigned char green, unsigned char blue);
 
+unsigned int RGB888toRGB32bit(unsigned char red, unsigned char green, unsigned char blue);
+
 int             fb_open(char *fb_device);
 
 int             fb_close(int fd);
@@ -33,13 +35,11 @@ int             fb_munmap(void *start, size_t length);
 
 int             fb_pixel(void *fbmem, int width, int height,int x, int y, unsigned short color);
 
+int             fb_pixel_32bit(void *fbmem, int width, int height,int x, int y, unsigned int color);
 
 /************ function implementation ********************/
 
-int
-
-main(int argc, char *argv[])
-
+int main(int argc, char *argv[])
 {
     /*
 
@@ -70,7 +70,8 @@ main(int argc, char *argv[])
     * check auguments
     */
 
-    if (argc != 2) {
+    if (argc != 2) 
+    {
             usage("insuffient auguments");
             exit(-1);
     }
@@ -83,6 +84,7 @@ main(int argc, char *argv[])
 
     if ((fb_device = getenv("FRAMEBUFFER")) == NULL)
             fb_device = FB_DEV;
+    printf("fb_device: %s\r\n",fb_device);
     fbdev = fb_open(fb_device);
 
     /*
@@ -101,7 +103,7 @@ main(int argc, char *argv[])
     */
 
     if ((infile = fopen(argv[1], "rb")) == NULL) {
-            fprintf(stderr, "open %s failed/n", argv[1]);
+            printf("open %s failed\r\n", argv[1]);
             exit(-1);
     }
 
@@ -144,11 +146,22 @@ main(int argc, char *argv[])
     buffer = (unsigned char *) malloc(cinfo.output_width * cinfo.output_components);
 
     y = 0;
-
+    printf("fb_width=%d,fb_height=%d,fb_depth=%d\r\n",fb_width,fb_height,fb_depth);
     while (cinfo.output_scanline < cinfo.output_height) 
     {
         jpeg_read_scanlines(&cinfo, &buffer, 1);
-
+       #if 0
+        {   
+            char i;
+            static num=0;
+            printf("%d----",num);
+            for(i=0;i<50;i++)
+                printf("0x%x,",buffer[i]);
+            printf("\r\n");
+            num++;
+        }
+    #endif
+        
         if (fb_depth == 16) 
         {
             unsigned short  color;
@@ -158,9 +171,18 @@ main(int argc, char *argv[])
                 fb_pixel(fbmem, fb_width, fb_height, x, y, color);
             }
         } 
-        else if (fb_depth == 24) 
+        else if (fb_depth == 24)
         {
             memcpy((unsigned char *) fbmem + y * fb_width * 3,buffer, cinfo.output_width * cinfo.output_components);
+        }
+        else if (fb_depth == 32)
+        {
+            unsigned int  color;
+            for (x = 0; x < cinfo.output_width; x++) 
+            {
+                color = RGB888toRGB32bit(buffer[x * 3],buffer[x * 3 + 1], buffer[x * 3 + 2]);
+                fb_pixel_32bit(fbmem, fb_width, fb_height, x, y, color);
+            }            
         }
         y++;                                   // next scanline
     }
@@ -220,6 +242,16 @@ unsigned short RGB888toRGB565(unsigned char red, unsigned char green, unsigned c
     return (unsigned short) (R | G | B);
 }
 
+unsigned int RGB888toRGB32bit(unsigned char red, unsigned char green, unsigned char blue)
+{
+    unsigned int  A = 0xFF<<24;
+    unsigned int  R = (red << 16) & 0x00FF0000;
+    unsigned int  G = (green<< 8) & 0x0000FF00;
+    unsigned int  B = (blue << 0) & 0x000000FF;
+    
+    
+    return (unsigned int) (A | R | G | B);
+}
 
 
 /*
@@ -324,6 +356,18 @@ int fb_pixel(void *fbmem, int width, int height,int x, int y, unsigned short col
     return (-1);
 
     unsigned short *dst = ((unsigned short *) fbmem + y * width + x);
+    *dst = color;
+    return (0);
+}
+
+
+int fb_pixel_32bit(void *fbmem, int width, int height,int x, int y, unsigned int color)
+{
+    if ((x > width) || (y > height))
+
+    return (-1);
+
+    unsigned int *dst = ((unsigned int *) fbmem + y * width + x);
     *dst = color;
     return (0);
 }
