@@ -25,7 +25,7 @@
 #define CACHE_FRAME_MAX		20
 #define CACHE_FRAME_MIN		5
 
-#define FB_START_X			600
+#define FB_START_X			0
 #define FB_START_Y			0
 
 
@@ -40,18 +40,25 @@ unsigned char bagHeadInfo[] = {0x3C, 0x42, 0x69, 0x6E, 0x67, 0x6F, 0x53, 0x74, 0
 unsigned char bagTailInfo[] = {0x42, 0x69, 0x6E, 0x67, 0x6F, 0x45, 0x6E, 0x64, 0x3E};
 
 unsigned char* socketMemPool = NULL;
-unsigned char* jpegBuffer = NULL;
 unsigned int write_pos = 0;
 unsigned int read_pos = 0;
 
+struct jpegBuffer
+{
+	unsigned int len;
+	unsigned char* buffer;
+};
 
-unsigned int cacheFrame_start[CACHE_FRAME_MAX],cacheFrame_end[CACHE_FRAME_MAX];
+struct jpegBuffer _jpegBuffer[CACHE_FRAME_MAX];
 unsigned int cache_write_pos = 0;
 unsigned int cache_read_pos = 0;
 
 
 sem_t sem_recv;
+sem_t sem_jpeg;
 
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+ 
 
 
 unsigned int getVaidRange(unsigned int write,unsigned int read,unsigned int maxSize)
@@ -114,6 +121,20 @@ char isVaildCheckSum(unsigned int start,unsigned int end)
 
 
 
+void frameBuffFifo(unsigned int start,unsigned int end)
+{
+	unsigned int i=0;
+	_jpegBuffer[cache_write_pos].len = 0;
+	while(start != end)//checkSum不复制
+	{
+		_jpegBuffer[cache_write_pos].buffer[i++] = socketMemPool[start++];
+		if(start >= SOCKET_MEM_POOL_SIZE)	start = 0;
+		_jpegBuffer[cache_write_pos].len++;
+	}
+	cache_write_pos = POS_OFFSET_ADD(cache_write_pos,1,CACHE_FRAME_MAX);
+}
+
+
 void* socketReceive(void* args)
 {
 	int sockfd = *((int*)args);
@@ -122,7 +143,10 @@ void* socketReceive(void* args)
 	
 	while(1)
     {
+	//	pthread_mutex_lock(&mutex);
+	//	pthread_mutex_unlock(&mutex);
         numbytes=recv(sockfd,&socketMemPool[write_pos],SOCKET_CELL_SIZE,0);  
+		printf("1.numbytes = %d\r\n",numbytes);
       	if(numbytes<0)
       	{
 			printf("socket recv error %d",numbytes);
@@ -134,13 +158,13 @@ void* socketReceive(void* args)
 		
 			if(getVaidRange(write_pos,read_pos,SOCKET_MEM_POOL_SIZE) >= SOCKET_CELL_SIZE)
 			{
+				
 				sem_post(&sem_recv);
 			}
 		}
 		usleep(1);
     }
 	returnFlag = 1;
-	sem_post(&sem_recv);		//最后发一次任务调度，结束数据处理线程	
 }
 
 
@@ -148,33 +172,37 @@ void* analyse_socketData(void* args)
 {
 	unsigned int byteNum=0,i;
 	char flag = 0;
+	static unsigned int startAddr,endAddr;
 	while(1)
 	{
 		sem_wait(&sem_recv);
 		if(returnFlag)	break;
+	//	pthread_mutex_lock(&mutex);
+	//	pthread_mutex_unlock(&mutex);
 		byteNum = getVaidRange(write_pos,read_pos,SOCKET_MEM_POOL_SIZE);
+		printf("2.byteNum = %d\r\n",byteNum);
 		for(i=0;i<byteNum;i++)
 		{
 			if((flag==0) && (isVaildSocketBag_head(read_pos) != 0xFFFFFFFF))
 			{
-				cacheFrame_start[cache_write_pos] = POS_OFFSET_ADD(read_pos,sizeof(bagHeadInfo),SOCKET_MEM_POOL_SIZE);
+				startAddr = POS_OFFSET_ADD(read_pos,sizeof(bagHeadInfo),SOCKET_MEM_POOL_SIZE);
 				flag = 1;
-				//printf("aaaaaaaa  read_pos=%d\r\n",read_pos);
+				printf("aaaaaaaa  read_pos=%d\r\n",read_pos);
 			}
 			else if((flag==1) && (isVaildSocketBag_tail(read_pos) != 0xFFFFFFFF))
 			{
-				cacheFrame_end[cache_write_pos] = POS_OFFSET_SUB(read_pos,1,SOCKET_MEM_POOL_SIZE);
+				endAddr = POS_OFFSET_SUB(read_pos,1,SOCKET_MEM_POOL_SIZE);
 				flag = 0;
+				printf("bbbbbbbbb  read_pos=%d\r\n",read_pos);
 
-				if(isVaildCheckSum(cacheFrame_start[cache_write_pos],cacheFrame_end[cache_write_pos]))
+				if(isVaildCheckSum(startAddr,endAddr))
 				{
-					cache_write_pos++;
-					if(cache_write_pos >= CACHE_FRAME_MAX)	cache_write_pos=0;
-					//复制到显示buff里面
+					printf("ccccccccccccccc\r\n");
+					frameBuffFifo(startAddr,endAddr);
+					sem_post(&sem_jpeg);
 				}
 			}
-			read_pos++;
-			if(read_pos >= SOCKET_MEM_POOL_SIZE)	read_pos = 0;
+			read_pos = POS_OFFSET_ADD(read_pos,1,SOCKET_MEM_POOL_SIZE);
 		}	
 		usleep(1);
 	}
@@ -330,7 +358,6 @@ void* jpegFrambuff(void* args)
     unsigned int    fb_depth;
     unsigned int    x;
     unsigned int    y;
-	unsigned int delayTime = 0,frameNum=0,timeNum=0;
 
 	if ((fb_device = getenv("FRAMEBUFFER")) == NULL)
             fb_device = FB_DEV;
@@ -339,47 +366,28 @@ void* jpegFrambuff(void* args)
 	fb_stat(fbdev, &fb_width, &fb_height, &fb_depth);
 	screensize = fb_width * fb_height * fb_depth / 8;
     fbmem = fb_mmap(fbdev, screensize);
-	jpegBuffer = (unsigned char *) malloc(JPEG_BUFF_SIZE);
 	buffer = (unsigned char *) malloc(3840*2160);
+	if(buffer == NULL)
+	{
+		returnFlag = 1;
+		printf("malloc libjpeg buffer faild\r\n");
+	}
 
 	while(1)
 	{
 		struct jpeg_decompress_struct cinfo;
     	struct jpeg_error_mgr jerr;
-		unsigned int startAddr,endAddr,len;
+		sem_wait(&sem_jpeg);
 		if(returnFlag)	break;
-		frameNum = getVaidRange(cache_write_pos,cache_read_pos,CACHE_FRAME_MAX);
-		if(frameNum == 0)
-		{
-			delayTime = 1000;	//10ms
-			goto sleepProcess;
-		}
-		startAddr = cacheFrame_start[cache_read_pos];
-		endAddr = cacheFrame_end[cache_read_pos];
-		if(startAddr <= endAddr)
-		{
-			len = endAddr - startAddr +1;
-			memcpy(jpegBuffer,&socketMemPool[startAddr],len);
-		}			
-		else
-		{
-			len = SOCKET_MEM_POOL_SIZE - startAddr + endAddr + 1;
-			memcpy(jpegBuffer,&socketMemPool[startAddr],SOCKET_MEM_POOL_SIZE - startAddr);
-			memcpy(&jpegBuffer[SOCKET_MEM_POOL_SIZE - startAddr],&socketMemPool[0],endAddr + 1);
-		}
-			
 		
-		cache_read_pos++;
-		if(cache_read_pos >= CACHE_FRAME_MAX)	cache_read_pos = 0;
-		
-	//	printf("len=%d timeNum=%d\r\n",len,timeNum++);
 
-
+	//	pthread_mutex_lock(&mutex);				//上锁，保证刷屏过程不被抢占
 		cinfo.err = jpeg_std_error(&jerr);
     	jpeg_create_decompress(&cinfo);
-		jpeg_stdio_buffer_src (&cinfo, jpegBuffer, len);
+		jpeg_stdio_buffer_src (&cinfo, _jpegBuffer[cache_read_pos].buffer,_jpegBuffer[cache_read_pos].len);
 		jpeg_read_header(&cinfo, TRUE);
 		jpeg_start_decompress(&cinfo);
+		cache_read_pos = POS_OFFSET_ADD(cache_read_pos,1,CACHE_FRAME_MAX);
 		if ((cinfo.output_width > fb_width) || (cinfo.output_height > fb_height)) 
 		{
 			printf("too large JPEG file,cannot display/n");
@@ -419,12 +427,10 @@ void* jpegFrambuff(void* args)
 		}
 		jpeg_finish_decompress(&cinfo);
     	jpeg_destroy_decompress(&cinfo);
+
+	//	pthread_mutex_unlock(&mutex);
 		
-
-		continue;
-
-		sleepProcess:
-			usleep(delayTime);
+		//usleep(1);
 	}
 	free(buffer);
 	fb_munmap(fbmem, screensize);
@@ -446,6 +452,7 @@ int disableAutoCloseFb(void)
 //argv[2]:端口号
 int main(int argc,char *argv[])
 {
+	int i;
 	pthread_t tid_recv,tid_analyse,tid_display;
     int sockfd,numbytes;
 	char buf[50];
@@ -481,19 +488,38 @@ int main(int argc,char *argv[])
     buf[numbytes]='\0';  
     printf("%s",buf);
 	disableAutoCloseFb();
-
+	for(i=0;i<CACHE_FRAME_MAX;i++)
+	{
+		_jpegBuffer[i].buffer = (unsigned char*)malloc(JPEG_BUFF_SIZE);
+		if(_jpegBuffer[i].buffer == NULL)
+		{
+			printf("malloc jpeg buff faild\r\n");
+			return -1;
+		}
+	}
 	sem_init(&sem_recv,0,0);
+	sem_init(&sem_jpeg,0,0);
+	pthread_create(&tid_display,NULL,jpegFrambuff,NULL);//创建一个线程，用以显示画面
+	//sleep(1);
 
 	pthread_create(&tid_recv,NULL,socketReceive,(void*)&sockfd);//创建一个线程，用以接收数据
 	pthread_create(&tid_analyse,NULL,analyse_socketData,NULL);//创建一个线程，用以处理数据
-	pthread_create(&tid_display,NULL,jpegFrambuff,NULL);//创建一个线程，用以显示画面
+	
 
 	
     pthread_join(tid_recv,NULL);
+	sem_post(&sem_recv);		//最后发一次任务调度，结束数据处理线程	
 	pthread_join(tid_analyse,NULL);
+	sem_post(&sem_jpeg);		//最后发一次任务调度，结束数据处理线程	
 	pthread_join(tid_display,NULL);
 
+
+	for(i=0;i<CACHE_FRAME_MAX;i++)
+	{
+		free(_jpegBuffer[i].buffer);
+	}
 	sem_destroy(&sem_recv);
+	sem_destroy(&sem_jpeg);
     close(sockfd);
 	printf("close main pthread\r\n");
     return 0;
