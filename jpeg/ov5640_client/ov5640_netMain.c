@@ -28,9 +28,16 @@
 #define FB_START_X			600
 #define FB_START_Y			0
 
+
+#define POS_OFFSET_ADD(startpos,offset,maxSize)	((startpos+offset) >= maxSize)?((startpos+offset)-maxSize):(startpos+offset);
+#define POS_OFFSET_SUB(startpos,offset,maxSize) (startpos < offset)?(maxSize - (offset-startpos)):(startpos-offset);
+
 #define    FB_DEV  "/dev/fb0"
 
 char returnFlag = 0;
+
+unsigned char bagHeadInfo[] = {0x3C, 0x42, 0x69, 0x6E, 0x67, 0x6F, 0x53, 0x74, 0x61, 0x72, 0x74};
+unsigned char bagTailInfo[] = {0x42, 0x69, 0x6E, 0x67, 0x6F, 0x45, 0x6E, 0x64, 0x3E};
 
 unsigned char* socketMemPool = NULL;
 unsigned char* jpegBuffer = NULL;
@@ -46,24 +53,64 @@ unsigned int cache_read_pos = 0;
 sem_t sem_recv;
 
 
-unsigned int getVaidRange(void)
+
+unsigned int getVaidRange(unsigned int write,unsigned int read,unsigned int maxSize)
 {
-	if(write_pos >= read_pos)	return write_pos-read_pos;
+	if(write >= read)	return write-read;
 	else
 	{
-		return SOCKET_MEM_POOL_SIZE-read_pos+write_pos;
+		return maxSize-read+write;
 	}
 }
 
-unsigned int getVaidFrame(void)
+unsigned int isVaildSocketBag_head(unsigned int readPos)
 {
-	if(cache_write_pos >= cache_read_pos)	return cache_write_pos-cache_read_pos;
-	else
+	char i,len;
+	unsigned int readpos_temp = readPos;
+	len = sizeof(bagHeadInfo);
+	for(i=0;i<len;i++)
 	{
-		return CACHE_FRAME_MAX-cache_read_pos+cache_write_pos;
+		if(socketMemPool[readPos] == bagHeadInfo[i])
+		{
+			readPos++;
+			if(readPos >= SOCKET_MEM_POOL_SIZE)	readPos = 0;
+		}
+		else return 0xFFFFFFFF;
 	}
+	return readpos_temp;
 }
 
+unsigned int isVaildSocketBag_tail(unsigned int readPos)
+{
+	char i,len;
+	unsigned int readpos_temp = readPos;
+	len = sizeof(bagTailInfo);
+	for(i=0;i<len;i++)
+	{
+		if(socketMemPool[readPos] == bagTailInfo[i])
+		{
+			readPos++;
+			if(readPos >= SOCKET_MEM_POOL_SIZE)	readPos = 0;
+		}
+		else return 0xFFFFFFFF;
+	}
+	return readpos_temp;
+}
+
+char isVaildCheckSum(unsigned int start,unsigned int end)
+{
+	unsigned int i;
+	unsigned char checkSum=0;
+	
+	while(start != end)
+	{
+		checkSum += socketMemPool[start];
+		start++;
+		if(start >= SOCKET_MEM_POOL_SIZE)	start = 0;
+	}
+	if(checkSum == socketMemPool[end])	return 1;
+	else								return 0;
+}
 
 
 
@@ -83,13 +130,9 @@ void* socketReceive(void* args)
 		}
 		else
 		{
-			write_pos += numbytes;
-			if(write_pos >= SOCKET_MEM_POOL_SIZE)	
-			{
-				write_pos = write_pos-SOCKET_MEM_POOL_SIZE;
-			}	
-			
-			if(getVaidRange() >= SOCKET_CELL_SIZE)
+			write_pos = POS_OFFSET_ADD(write_pos,numbytes,SOCKET_MEM_POOL_SIZE);
+		
+			if(getVaidRange(write_pos,read_pos,SOCKET_MEM_POOL_SIZE) >= SOCKET_CELL_SIZE)
 			{
 				sem_post(&sem_recv);
 			}
@@ -109,24 +152,25 @@ void* analyse_socketData(void* args)
 	{
 		sem_wait(&sem_recv);
 		if(returnFlag)	break;
-		byteNum = getVaidRange();
+		byteNum = getVaidRange(write_pos,read_pos,SOCKET_MEM_POOL_SIZE);
 		for(i=0;i<byteNum;i++)
 		{
-			if(socketMemPool[read_pos] == 0xFF)
+			if((flag==0) && (isVaildSocketBag_head(read_pos) != 0xFFFFFFFF))
 			{
-				if((flag==0) && (socketMemPool[read_pos+1] == 0xD8))
+				cacheFrame_start[cache_write_pos] = POS_OFFSET_ADD(read_pos,sizeof(bagHeadInfo),SOCKET_MEM_POOL_SIZE);
+				flag = 1;
+				//printf("aaaaaaaa  read_pos=%d\r\n",read_pos);
+			}
+			else if((flag==1) && (isVaildSocketBag_tail(read_pos) != 0xFFFFFFFF))
+			{
+				cacheFrame_end[cache_write_pos] = POS_OFFSET_SUB(read_pos,1,SOCKET_MEM_POOL_SIZE);
+				flag = 0;
+
+				if(isVaildCheckSum(cacheFrame_start[cache_write_pos],cacheFrame_end[cache_write_pos]))
 				{
-					cacheFrame_start[cache_write_pos] = read_pos;
-					flag = 1;
-				//	printf("aaaaaaaa  read_pos=%d\r\n",read_pos);
-				}
-				else if((flag==1) && (socketMemPool[read_pos+1] == 0xD9))
-				{
-					cacheFrame_end[cache_write_pos] = read_pos+1;
-					flag = 0;
-				//	printf("bbbbbbbbbbb  read_pos=%d\r\n",read_pos+1);
 					cache_write_pos++;
 					if(cache_write_pos >= CACHE_FRAME_MAX)	cache_write_pos=0;
+					//复制到显示buff里面
 				}
 			}
 			read_pos++;
@@ -304,7 +348,7 @@ void* jpegFrambuff(void* args)
     	struct jpeg_error_mgr jerr;
 		unsigned int startAddr,endAddr,len;
 		if(returnFlag)	break;
-		frameNum = getVaidFrame();
+		frameNum = getVaidRange(cache_write_pos,cache_read_pos,CACHE_FRAME_MAX);
 		if(frameNum == 0)
 		{
 			delayTime = 1000;	//10ms
