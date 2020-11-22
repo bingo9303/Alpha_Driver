@@ -17,9 +17,9 @@
 #include "jpeglib.h"
 #include "jerror.h"
 
-
+#define DEBUG_TEST			0
 #define SOCKET_MEM_POOL_SIZE		(1024*1024*4)		//申请4M的内存空间
-#define SOCKET_CELL_SIZE	1024
+#define SOCKET_CELL_SIZE	4096
 #define JPEG_BUFF_SIZE		(1024*500)			//申请500K内存用于存储要显示的jpeg数据
 
 #define CACHE_FRAME_MAX		20
@@ -29,14 +29,14 @@
 #define FB_START_Y			0
 
 
-#define POS_OFFSET_ADD(startpos,offset,maxSize)	((startpos+offset) >= maxSize)?((startpos+offset)-maxSize):(startpos+offset);
-#define POS_OFFSET_SUB(startpos,offset,maxSize) (startpos < offset)?(maxSize - (offset-startpos)):(startpos-offset);
+#define POS_OFFSET_ADD(startpos,offset,maxSize)	(((startpos+offset) >= maxSize)?((startpos+offset)-maxSize):(startpos+offset))
+#define POS_OFFSET_SUB(startpos,offset,maxSize) ((startpos < offset)?(maxSize - (offset-startpos)):(startpos-offset))
 
 #define    FB_DEV  "/dev/fb0"
 
 char returnFlag = 0;
 
-unsigned char bagHeadInfo[] = {0x3C, 0x42, 0x69, 0x6E, 0x67, 0x6F, 0x53, 0x74, 0x61, 0x72, 0x74};
+unsigned char bagHeadInfo[] = {0x3C, 0x42, 0x69, 0x6E, 0x67, 0x6F, 0x53, 0x74, 0x61, 0x72, 0x74, 0xFF, 0xD8};//0xFF 0xD8为jpeg标志位
 unsigned char bagTailInfo[] = {0x42, 0x69, 0x6E, 0x67, 0x6F, 0x45, 0x6E, 0x64, 0x3E};
 
 unsigned char* socketMemPool = NULL;
@@ -104,6 +104,40 @@ unsigned int isVaildSocketBag_tail(unsigned int readPos)
 	return readpos_temp;
 }
 
+
+
+unsigned int isJpegFlag(unsigned int readPos,char stOrEnd)
+{
+	char i,len;
+	char jpegFlag[2];
+	unsigned int readpos_temp = readPos;
+	len = 2;
+
+	jpegFlag[0] = 0xFF;
+	if(stOrEnd == 0)
+	{
+		jpegFlag[1] = 0xD8;
+	}
+	else
+	{
+		jpegFlag[1] = 0xD9;
+	}
+	
+
+	for(i=0;i<len;i++)
+	{
+		if(socketMemPool[readPos] == jpegFlag[i])
+		{
+			readPos++;
+			if(readPos >= SOCKET_MEM_POOL_SIZE)	readPos = 0;
+		}
+		else return 0xFFFFFFFF;
+	}
+	return readpos_temp;
+}
+
+
+
 char isVaildCheckSum(unsigned int start,unsigned int end)
 {
 	unsigned int i;
@@ -143,10 +177,9 @@ void* socketReceive(void* args)
 	
 	while(1)
     {
-	//	pthread_mutex_lock(&mutex);
-	//	pthread_mutex_unlock(&mutex);
-        numbytes=recv(sockfd,&socketMemPool[write_pos],SOCKET_CELL_SIZE,0);  
-		printf("1.numbytes = %d\r\n",numbytes);
+		pthread_mutex_lock(&mutex);
+		pthread_mutex_unlock(&mutex);
+        numbytes=recv(sockfd,&socketMemPool[write_pos],SOCKET_CELL_SIZE,0); 
       	if(numbytes<0)
       	{
 			printf("socket recv error %d",numbytes);
@@ -171,36 +204,63 @@ void* socketReceive(void* args)
 void* analyse_socketData(void* args)
 {
 	unsigned int byteNum=0,i;
-	char flag = 0;
+	static char flag = 0;	//20201107
 	static unsigned int startAddr,endAddr;
+#if DEBUG_TEST
+	unsigned errorCount[3] = {0};
+#endif
 	while(1)
 	{
 		sem_wait(&sem_recv);
 		if(returnFlag)	break;
-	//	pthread_mutex_lock(&mutex);
-	//	pthread_mutex_unlock(&mutex);
+		pthread_mutex_lock(&mutex);
+		pthread_mutex_unlock(&mutex);
 		byteNum = getVaidRange(write_pos,read_pos,SOCKET_MEM_POOL_SIZE);
-		printf("2.byteNum = %d\r\n",byteNum);
 		for(i=0;i<byteNum;i++)
 		{
-			if((flag==0) && (isVaildSocketBag_head(read_pos) != 0xFFFFFFFF))
+			if((isVaildSocketBag_head(read_pos) != 0xFFFFFFFF))
 			{
-				startAddr = POS_OFFSET_ADD(read_pos,sizeof(bagHeadInfo),SOCKET_MEM_POOL_SIZE);
+				startAddr = POS_OFFSET_ADD(read_pos,sizeof(bagHeadInfo)-2,SOCKET_MEM_POOL_SIZE);
 				flag = 1;
-				printf("aaaaaaaa  read_pos=%d\r\n",read_pos);
 			}
-			else if((flag==1) && (isVaildSocketBag_tail(read_pos) != 0xFFFFFFFF))
+			else if((flag==1) && (isJpegFlag(read_pos,1) != 0xFFFFFFFF))
 			{
-				endAddr = POS_OFFSET_SUB(read_pos,1,SOCKET_MEM_POOL_SIZE);
 				flag = 0;
-				printf("bbbbbbbbb  read_pos=%d\r\n",read_pos);
-
-				if(isVaildCheckSum(startAddr,endAddr))
+				if(isVaildSocketBag_tail(POS_OFFSET_ADD(read_pos,3,SOCKET_MEM_POOL_SIZE)) != 0xFFFFFFFF)
 				{
-					printf("ccccccccccccccc\r\n");
-					frameBuffFifo(startAddr,endAddr);
-					sem_post(&sem_jpeg);
+					endAddr = POS_OFFSET_ADD(read_pos,2,SOCKET_MEM_POOL_SIZE);
+					if(isVaildCheckSum(startAddr,endAddr))
+					{
+						pthread_mutex_lock(&mutex);
+						frameBuffFifo(startAddr,endAddr);
+						pthread_mutex_unlock(&mutex);
+						sem_post(&sem_jpeg);
+					}
+					else
+					{
+					#if DEBUG_TEST
+						errorCount[1]++;
+						printf("debug 1 debug 1 debug 1 errorCount = %d\r\n",errorCount[1]);
+					#endif
+					}
 				}
+				else
+				{
+				#if DEBUG_TEST
+					errorCount[0]++;
+					printf("debug 0 debug 0 debug 0 errorCount = %d\r\n",errorCount[0]);
+				#endif
+				}
+				
+				
+			}
+			else if((flag==1) && (isJpegFlag(read_pos,0) != 0xFFFFFFFF) && (read_pos != startAddr))
+			{
+				flag = 0;
+			#if DEBUG_TEST
+				errorCount[2]++;
+				printf("debug 2 debug 2 debug 2 errorCount = %d,startAddr = %d,read_pos = %d\r\n",errorCount[2],startAddr,read_pos);				
+			#endif
 			}
 			read_pos = POS_OFFSET_ADD(read_pos,1,SOCKET_MEM_POOL_SIZE);
 		}	
@@ -381,26 +441,37 @@ void* jpegFrambuff(void* args)
 		if(returnFlag)	break;
 		
 
-	//	pthread_mutex_lock(&mutex);				//上锁，保证刷屏过程不被抢占
+		pthread_mutex_lock(&mutex);				//上锁，保证刷屏过程不被抢占
+
 		cinfo.err = jpeg_std_error(&jerr);
     	jpeg_create_decompress(&cinfo);
 		jpeg_stdio_buffer_src (&cinfo, _jpegBuffer[cache_read_pos].buffer,_jpegBuffer[cache_read_pos].len);
-		jpeg_read_header(&cinfo, TRUE);
-		jpeg_start_decompress(&cinfo);
 		cache_read_pos = POS_OFFSET_ADD(cache_read_pos,1,CACHE_FRAME_MAX);
+
+
+		if(jpeg_read_header(&cinfo, TRUE) != 1)
+		{
+			printf("jpeg_read_header error !!!\r\n");
+			continue;
+		}
+		if(jpeg_start_decompress(&cinfo) != 1)
+		{
+			printf("jpeg_start_decompress error !!!\r\n");
+			continue;
+		}
+
 		if ((cinfo.output_width > fb_width) || (cinfo.output_height > fb_height)) 
 		{
-			printf("too large JPEG file,cannot display/n");
-			break;
+			printf("JPEG bad file,cannot display\r\n");
+			pthread_mutex_unlock(&mutex);
+			continue;
 		}
-		
 		y = FB_START_Y;
 		//printf("fb_width=%d,fb_height=%d,fb_depth=%d\r\n",fb_width,fb_height,fb_depth);
 		//printf("cinfo_width=%d,cinfo_height=%d,fb_components=%d\r\n",cinfo.output_width,cinfo.output_height,cinfo.output_components);
 		while (cinfo.output_scanline < cinfo.output_height) 
 		{
 			jpeg_read_scanlines(&cinfo, &buffer, 1);
-		
 			if (fb_depth == 16) 
 			{
 				unsigned short  color;
@@ -428,7 +499,7 @@ void* jpegFrambuff(void* args)
 		jpeg_finish_decompress(&cinfo);
     	jpeg_destroy_decompress(&cinfo);
 
-	//	pthread_mutex_unlock(&mutex);
+		pthread_mutex_unlock(&mutex);
 		
 		//usleep(1);
 	}
@@ -500,7 +571,7 @@ int main(int argc,char *argv[])
 	sem_init(&sem_recv,0,0);
 	sem_init(&sem_jpeg,0,0);
 	pthread_create(&tid_display,NULL,jpegFrambuff,NULL);//创建一个线程，用以显示画面
-	//sleep(1);
+	sleep(1);
 
 	pthread_create(&tid_recv,NULL,socketReceive,(void*)&sockfd);//创建一个线程，用以接收数据
 	pthread_create(&tid_analyse,NULL,analyse_socketData,NULL);//创建一个线程，用以处理数据
