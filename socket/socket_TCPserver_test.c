@@ -8,6 +8,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include   <net/if.h>
+#include   <net/if_arp.h>
+#include   <arpa/inet.h>
+#include   <errno.h>
+#include <sys/ioctl.h>
 /************************************************************************************************************************
 1、int socket(int family,int type,int protocol)
 family:
@@ -64,6 +69,10 @@ len:
     数据的长度，把flags设置为0
 *************************************************************************************************************************/
 #define TESTBUFSIZE	100
+#define MULTIPLE_NETWOROK       1
+#define ETH_NAME    "wlan0"
+
+
 int main(int argc, char *argv[])
 {
     int fd, new_fd, struct_len, numbytes,i;
@@ -78,6 +87,30 @@ int main(int argc, char *argv[])
     struct_len = sizeof(struct sockaddr_in);
 
     fd = socket(AF_INET, SOCK_STREAM, 0);		//打开socket
+
+
+#if (MULTIPLE_NETWOROK)  //多网卡   
+    {
+        struct ifreq interface;
+        char if_addr[16];
+        printf("multiple network car  ");
+        memset(&interface,0,sizeof(struct ifreq));
+        strncpy(interface.ifr_ifrn.ifrn_name, ETH_NAME, sizeof(ETH_NAME));//指定网卡
+
+        /* 读取该网卡的IP地址 */
+        ioctl(fd, SIOCGIFADDR, &interface);
+        strcpy(if_addr, inet_ntoa(((struct sockaddr_in *)&interface.ifr_ifru.ifru_addr)->sin_addr));
+        printf("ipaddr : %s\n", if_addr);
+
+        /* socket指定网卡收发数据 */
+        if(setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (char *)&interface, sizeof(interface))  < 0) 
+        {
+            printf("SO_BINDTODEVICE failed");
+        }
+    }
+
+
+#endif
 	
     while(bind(fd, (struct sockaddr *)&server_addr, struct_len) == -1);//绑定地址
     printf("Bind Success!\n");
