@@ -16,6 +16,11 @@
 #include <sys/mman.h>
 #include "jpeglib.h"
 #include "jerror.h"
+#include <net/if.h>
+#include <net/if_arp.h>
+#include <arpa/inet.h>
+#include <errno.h>
+#include <sys/ioctl.h>
 
 #define DEBUG_TEST			0
 #define SOCKET_MEM_POOL_SIZE		(1024*1024*4)		//申请4M的内存空间
@@ -33,6 +38,9 @@
 #define POS_OFFSET_SUB(startpos,offset,maxSize) ((startpos < offset)?(maxSize - (offset-startpos)):(startpos-offset))
 
 #define    FB_DEV  "/dev/fb0"
+
+#define MULTIPLE_NETWOROK       1
+#define ETH_NAME    			"wlan0"
 
 char returnFlag = 0;
 
@@ -543,6 +551,27 @@ int main(int argc,char *argv[])
 	
     while((sockfd = socket(AF_INET,SOCK_STREAM,0)) == -1);//打开socket
     printf("We get the sockfd~\n");
+
+#if (MULTIPLE_NETWOROK)  //多网卡   
+    {
+        struct ifreq interface;
+        char if_addr[16];
+        printf("multiple network car  ");
+        memset(&interface,0,sizeof(struct ifreq));
+        strncpy(interface.ifr_ifrn.ifrn_name, ETH_NAME, sizeof(ETH_NAME));//指定网卡
+
+        /* 读取该网卡的IP地址 */
+        ioctl(sockfd, SIOCGIFADDR, &interface);
+        strcpy(if_addr, inet_ntoa(((struct sockaddr_in *)&interface.ifr_ifru.ifru_addr)->sin_addr));
+        printf("ipaddr : %s\n", if_addr);
+
+        /* socket指定网卡收发数据 */
+        if(setsockopt(sockfd, SOL_SOCKET, SO_BINDTODEVICE, (char *)&interface, sizeof(interface))  < 0) 
+        {
+            printf("SO_BINDTODEVICE failed");
+        }
+    }
+#endif
 
 	
     their_addr.sin_family = AF_INET;						//IPV4的协议族
