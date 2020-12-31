@@ -47,32 +47,46 @@ static void  errno_exit  (const char *s)
     exit (EXIT_FAILURE);  
 }  
   
-static int  
-xioctl                          (int                    fd,  
-                                 int                    request,  
-                                 void *                 arg)  
+static int  xioctl(int fd,int  request,void * arg)  
 {  
-        int r;  
-  
-        do r = ioctl (fd, request, arg);  
-        while (-1 == r && EINTR == errno);  
-  
-        return r;  
+    int r;  
+    do r = ioctl (fd, request, arg);  
+    while (-1 == r && EINTR == errno);  
+    return r;  
 }  
   
 
 
 static void  process_image(const void *p)  
 {  
-    struct buffer * buffer = (struct buffer * )p;
+    
     char strbuff[50];
-
+	unsigned int startAddr,len;
   //  printf("111..%ld\r\n",GetTime_Ms());
-   
+  	switch (io) 
+  	{
+		case IO_METHOD_READ: 
+		case IO_METHOD_MMAP:  
+			{
+				struct buffer * buffer = (struct buffer * )p;
+				startAddr = buffer->start;
+				len = buffer->length;
+			}
+			break;
+		case IO_METHOD_USERPTR:  
+			{
+				struct v4l2_buffer * buf = (struct v4l2_buffer *)p;
+				startAddr = buf->m.userptr;
+				len = buf->length;
+			}			
+			break;
+	}
+
+
     if(fb_info.fb_depth == 32)
     {
-        yuyv_to_rgb32(  buffer->start,
-                        buffer->length,
+        yuyv_to_rgb32(  startAddr,
+                        len,
                         fb_info.framebuff,
                         fb_info.fb_width, 
                         fb_info.fb_height,
@@ -81,8 +95,8 @@ static void  process_image(const void *p)
     }
     else if(fb_info.fb_depth == 24)
     {
-        yuyv_to_rgb24(  buffer->start,
-                        buffer->length,
+        yuyv_to_rgb24(  startAddr,
+                        len,
                         fb_info.framebuff,
                         fb_info.fb_width, 
                         fb_info.fb_height,
@@ -92,8 +106,8 @@ static void  process_image(const void *p)
     }
     else if(fb_info.fb_depth == 16)
     {
-        yuyv_to_rgb16_rgb565(   buffer->start,
-                                buffer->length,
+        yuyv_to_rgb16_rgb565(   startAddr,
+                                len,
                                 fb_info.framebuff,
                                 fb_info.fb_width, 
                                 fb_info.fb_height,
@@ -101,10 +115,6 @@ static void  process_image(const void *p)
                                 DISPLAY_SIZE_X);
     }    
  //   printf("222..%ld\r\n",GetTime_Ms());
-/*
-    fputc ('.', stdout);  
-    fflush (stdout);  
-    */
 }  
   
 static int  read_frame(void)  
@@ -128,7 +138,8 @@ static int  read_frame(void)
                         errno_exit ("read");  
                 }  
             }  
-            process_image (buffers[0].start);  
+            //process_image (buffers[0].start);  
+            process_image (&buffers[0]);  
             break;  
   
         case IO_METHOD_MMAP:  
@@ -136,6 +147,7 @@ static int  read_frame(void)
             buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;  
             buf.memory = V4L2_MEMORY_MMAP;  
 
+			//buf里会被填充当前读取到的是哪个一个内核空间内存的index的缓存帧
             if (-1 == xioctl (fd, VIDIOC_DQBUF, &buf)) 
             {  
                 switch (errno) 
@@ -176,11 +188,18 @@ static int  read_frame(void)
                 }  
             }  
             for (i = 0; i < n_buffers; ++i)  
-                if (buf.m.userptr == (unsigned long) buffers[i].start  
+            {
+            	//找出当前读取到的缓存帧属于哪一块用户空间的内存
+				if (buf.m.userptr == (unsigned long) buffers[i].start  
                     && buf.length == buffers[i].length)  
-                    break;  
+				{
+					break;  
+				}                    
+			}
+                
             assert (i < n_buffers);  
-            process_image ((void *) buf.m.userptr);  
+           // process_image ((void *) buf.m.userptr);  
+            process_image (&buf);  
             if (-1 == xioctl (fd, VIDIOC_QBUF, &buf))  
                 errno_exit ("VIDIOC_QBUF");  
             break;  
@@ -232,10 +251,9 @@ static void  mainloop(void)
     }  
 }  
   
-static void  
-stop_capturing                  (void)  
+static void  stop_capturing(void)  
 {  
-        enum v4l2_buf_type type;  
+    enum v4l2_buf_type type;  
   
     switch (io) {  
     case IO_METHOD_READ:  
@@ -304,10 +322,9 @@ static void  start_capturing(void)
     }  
 }  
   
-static void  
-uninit_device                   (void)  
+static void  uninit_device(void)  
 {  
-        unsigned int i;  
+    unsigned int i;  
   
     switch (io) {  
     case IO_METHOD_READ:  
@@ -329,22 +346,23 @@ uninit_device                   (void)
     free (buffers);  
 }  
   
-static void  
-init_read           (unsigned int       buffer_size)  
+static void  init_read(unsigned int buffer_size)  
 {  
-        buffers = calloc (1, sizeof (*buffers));  
-  
-        if (!buffers) {  
-                fprintf (stderr, "Out of memory\n");  
-                exit (EXIT_FAILURE);  
-        }  
+    buffers = calloc (1, sizeof (*buffers));  
+
+    if (!buffers) 
+	{  
+        fprintf (stderr, "Out of memory\n");  
+        exit (EXIT_FAILURE);  
+    }  
   
     buffers[0].length = buffer_size;  
     buffers[0].start = malloc (buffer_size);  
   
-    if (!buffers[0].start) {  
-            fprintf (stderr, "Out of memory\n");  
-                exit (EXIT_FAILURE);  
+    if (!buffers[0].start) 
+	{  
+        fprintf (stderr, "Out of memory\n");  
+        exit (EXIT_FAILURE);  
     }  
 }  
   
@@ -354,7 +372,7 @@ static void  init_mmap(void)
   
     CLEAR (req);  
 
-    req.count               = 4;  
+    req.count               = 4;  //缓冲帧数
     req.type                = V4L2_BUF_TYPE_VIDEO_CAPTURE;  
     req.memory              = V4L2_MEMORY_MMAP;  
   
@@ -381,9 +399,10 @@ static void  init_mmap(void)
   
     buffers = calloc (req.count, sizeof (*buffers));  
   
-    if (!buffers) {  
-            fprintf (stderr, "Out of memory\n");  
-            exit (EXIT_FAILURE);  
+    if (!buffers) 
+	{  
+	    fprintf (stderr, "Out of memory\n");  
+	    exit (EXIT_FAILURE);  
     }  
 
     for (n_buffers = 0; n_buffers < req.count; ++n_buffers) 
@@ -412,43 +431,49 @@ static void  init_mmap(void)
     }  
 }  
   
-static void  
-init_userp          (unsigned int       buffer_size)  
+static void  init_userp(unsigned int buffer_size)  
 {  
     struct v4l2_requestbuffers req;  
   
-        CLEAR (req);  
-  
-        req.count               = 4;  
-        req.type                = V4L2_BUF_TYPE_VIDEO_CAPTURE;  
-        req.memory              = V4L2_MEMORY_USERPTR;  
-  
-        if (-1 == xioctl (fd, VIDIOC_REQBUFS, &req)) {  
-                if (EINVAL == errno) {  
-                        fprintf (stderr, "%s does not support "  
-                                 "user pointer i/o\n", dev_name);  
-                        exit (EXIT_FAILURE);  
-                } else {  
-                        errno_exit ("VIDIOC_REQBUFS");  
-                }  
+    CLEAR (req);  
+
+    req.count               = 4;  //缓冲帧数
+    req.type                = V4L2_BUF_TYPE_VIDEO_CAPTURE;  
+    req.memory              = V4L2_MEMORY_USERPTR;  
+
+    if (-1 == xioctl (fd, VIDIOC_REQBUFS, &req)) 
+	{  
+        if (EINVAL == errno) 
+		{  
+           fprintf (stderr, "%s does not support "  
+                         "user pointer i/o\n", dev_name);  
+           exit (EXIT_FAILURE);  
+        } 
+		else 
+		{  
+           errno_exit ("VIDIOC_REQBUFS");  
         }  
-  
-        buffers = calloc (4, sizeof (*buffers));  
-  
-        if (!buffers) {  
-                fprintf (stderr, "Out of memory\n");  
-                exit (EXIT_FAILURE);  
-        }  
-  
-        for (n_buffers = 0; n_buffers < 4; ++n_buffers) {  
-                buffers[n_buffers].length = buffer_size;  
-                buffers[n_buffers].start = malloc (buffer_size);  
-  
-                if (!buffers[n_buffers].start) {  
-                fprintf (stderr, "Out of memory\n");  
-                    exit (EXIT_FAILURE);  
-        }  
-        }  
+    }  
+
+    buffers = calloc (4, sizeof (*buffers));  
+
+    if (!buffers) 
+	{  
+        fprintf (stderr, "Out of memory\n");  
+        exit (EXIT_FAILURE);  
+    }  
+
+    for (n_buffers = 0; n_buffers < 4; ++n_buffers) 
+	{  
+        buffers[n_buffers].length = buffer_size;  
+        buffers[n_buffers].start = malloc (buffer_size);  
+
+        if (!buffers[n_buffers].start) 
+		{  
+			fprintf (stderr, "Out of memory\n");  
+			exit (EXIT_FAILURE);  
+    	}  
+    }  
 }  
   
 static void  init_device(void)  
@@ -487,25 +512,24 @@ static void  init_device(void)
     switch (io) 
     {  
         case IO_METHOD_READ:  
-            if (!(cap.capabilities & V4L2_CAP_READWRITE)) {  
+            if (!(cap.capabilities & V4L2_CAP_READWRITE)) 
+			{  
                 fprintf (stderr, "%s does not support read i/o\n",  
                     dev_name);  
                 exit (EXIT_FAILURE);  
             }  
-    
             break;  
   
         case IO_METHOD_MMAP:  
         case IO_METHOD_USERPTR:  
-            if (!(cap.capabilities & V4L2_CAP_STREAMING)) {  
+            if (!(cap.capabilities & V4L2_CAP_STREAMING)) 
+			{  
                 fprintf (stderr, "%s does not support streaming i/o\n",  
                     dev_name);  
                 exit (EXIT_FAILURE);  
             }  
-    
             break;  
     }  
-
 
     desc.index = 0;
 	desc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -556,13 +580,23 @@ static void  init_device(void)
     /* Note VIDIOC_S_FMT may change width and height. */  
   
     /* Buggy driver paranoia. */  
-    min = fmt.fmt.pix.width * 2;  
+	
+	//YUYV格式下，4个字节对应2个像素点，1个像素点相当于需要2个字节
+	
+    min = fmt.fmt.pix.width * 2;  		//一行至少需要几个字节
     if (fmt.fmt.pix.bytesperline < min)  
-        fmt.fmt.pix.bytesperline = min;  
-    min = fmt.fmt.pix.bytesperline * fmt.fmt.pix.height;  
+    {
+		fmt.fmt.pix.bytesperline = min;  
+	}		
+
+    min = fmt.fmt.pix.bytesperline * fmt.fmt.pix.height;  //一帧至少需要几个字节
     if (fmt.fmt.pix.sizeimage < min)  
-        fmt.fmt.pix.sizeimage = min;  
-  
+    {
+		fmt.fmt.pix.sizeimage = min;  
+	}
+        
+
+	//申请内存
     switch (io) 
     {  
         case IO_METHOD_READ:  
@@ -579,13 +613,12 @@ static void  init_device(void)
     }  
 }  
   
-static void  
-close_device                    (void)  
+static void  close_device(void)  
 {  
-        if (-1 == close (fd))  
-            errno_exit ("close");  
-  
-        fd = -1;  
+    if (-1 == close (fd))  
+        errno_exit ("close");  
+
+    fd = -1;  
 }  
   
 static void  open_device(void)  
@@ -709,410 +742,3 @@ int main(int argc, char *argv[])
 
     return 0;  
 }
-
-
-
-
-#if 0
-
-#include <stdio.h>
-#include <sys/types.h>		/* open() */
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>		/* close() */
-#include <string.h>		/* memset()  */
-#include <sys/ioctl.h>		/* ioctl() */
-#include <sys/mman.h>		/* mmap() */
-#include <stdlib.h>		/* malloc() */
-#include <linux/videodev2.h>	/* v4l2 */
-
-struct bitmap_fileheader {
-	unsigned short	type;
-	unsigned int	size;
-	unsigned short	reserved1;
-	unsigned short	reserved2;
-	unsigned int	off_bits;
-} __attribute__ ((packed));
- 
-struct bitmap_infoheader {
-	unsigned int	size;
-	unsigned int	width;
-	unsigned int	height;
-	unsigned short	planes;
-	unsigned short	bit_count;
-	unsigned int	compression;
-	unsigned int	size_image;
-	unsigned int	xpels_per_meter;
-	unsigned int	ypels_per_meter;
-	unsigned int	clr_used;
-	unsigned int	clr_important;
-} __attribute__ ((packed));
- 
-int saveimage(char *filename, char *p, int width, int height, int bits_per_pixel)
-{
-	FILE *fp;
-	struct bitmap_fileheader fh;
-	struct bitmap_infoheader ih;
-	int x, y;
- 
-	fp = fopen(filename, "wb");
-	if (fp == NULL) {
-		printf("can't open file %s\n", filename);
-		return -1;
-	}
- 
-	memset(&fh, 0, sizeof(struct bitmap_fileheader));
-	fh.type	= 0x4d42;
-	fh.off_bits = sizeof(struct bitmap_fileheader) + sizeof(struct bitmap_infoheader);
-	fh.size = fh.off_bits + width * height * (bits_per_pixel / 8);
-	fwrite(&fh, 1, sizeof(struct bitmap_fileheader), fp);
- 
-	memset(&ih, 0, sizeof(struct bitmap_infoheader));
-	ih.size = sizeof(struct bitmap_infoheader);
-	ih.width = width;
-	ih.height = height;
-	ih.planes = 1;
-	ih.bit_count = bits_per_pixel;
-/*	ih.compression = 0;
-	ih.size_image = 0;
-	ih.xpels_per_meter = 0;
-	ih.ypels_per_meter = 0;
-	ih.clr_used = 0;
-	ih.clr_important = 0;*/
-	fwrite(&ih, 1, sizeof(struct bitmap_infoheader), fp);
- 
-/*	fwrite(p, 1, width * height * (bits_per_pixel / 8), fp);*/
- 
-	p += width * (bits_per_pixel / 8) * (height - 1);
-	for (y = 0; y < height; y++, p -= width * (bits_per_pixel / 8)) {
-		fwrite(p, 1, width * (bits_per_pixel / 8), fp);
-	}
- 
-	fclose(fp);
- 
-	return 0;
-}
- 
-void yuv_2_rgb888(unsigned char y, unsigned char u, unsigned char v,
-		unsigned char *r, unsigned char *g, unsigned char *b)
-{
-	/*
-	 * From Wikipedia: en.wikipedia.org/wiki/YUV
-	 *
-	 * r = y + 1.402 * (v - 128)
-	 * g = y - 0.344 * (u - 128) - 0.714 * (v - 128)
-	 * b = y + 1.772 * (u - 128)
-	 */
-	int red, green, blue;
- 
-	red = y + 1.402 * (v - 128);
-	green = y - 0.344 * (u - 128) - 0.714 * (v - 128);
-	blue = y + 1.772 * (u - 128);
- 
-	*r = ((red > 255)) ? 255 : ((red < 0) ? 0 : red);
-	*g = ((green > 255)) ? 255 : ((green < 0) ? 0 : green);
-	*b = ((blue > 255)) ? 255 : ((blue < 0) ? 0 : blue);
-}
- 
-int capture(char *filename, char *buf, int width, int height)
-{
-	unsigned char *p = NULL;
-	int x, y;
-	
-	unsigned char y0, u0, y1, v0;
- 
-	p = (unsigned char *)malloc(width * height * 3);
-	if (p == NULL)
-		return -1;
- 
-	for (y = 0; y < height; y++) {
-		for (x = 0; x < width*3; x += 6, buf += 4) {
-			y0 = buf[0]; u0 = buf[1]; y1 = buf[2]; v0 = buf[3];
- 
-			yuv_2_rgb888(y0, u0, v0, &p[y*width*3+x+0], &p[y*width*3+x+1], &p[y*width*3+x+2]);
-			yuv_2_rgb888(y1, u0, v0, &p[y*width*3+x+3], &p[y*width*3+x+4], &p[y*width*3+x+5]);
-		}
-	}
- 
-	saveimage(filename, (char *)p, width, height, 24);
-	
-	free(p);
- 
-	return 0;
-}
- 
-struct buffer {
-	void    *start;
-	int     length;
-};
- 
-#define NR_BUFFER 4
-struct buffer buffers[NR_BUFFER];
- 
-/* V4L2 API */
-int v4l2_querycap(int fd)
-{
-	int ret;
-	struct v4l2_capability cap;
- 
-	ret = ioctl(fd, VIDIOC_QUERYCAP, &cap);
-	if (ret < 0) 
-	{
-		perror("VIDIOC_QUERYCAP failed");
-		return ret;
-	}
-	else
-	{
-		printf("Driver Name:%s\nCard Name:%s\nBus info:%s\nDriver Version:%u.%u.%u\n",cap.driver,cap.card,cap.bus_info,(cap.version>>16)&0XFF, (cap.version>>8)&0XFF,cap.version&0XFF);
-	}
-	return 0;
-}
- 
-int v4l2_enum_fmt(int fd, enum v4l2_buf_type type)
-{
-	struct v4l2_fmtdesc desc;
- 
-	desc.index = 0;
-	desc.type = type;
-	while (ioctl(fd, VIDIOC_ENUM_FMT, &desc) == 0) 
-	{
-		printf("format %s\n", desc.description);
-		desc.index++;
-	}
- 
-	return 0;
-}
- 
-int v4l2_g_fmt(int fd, enum v4l2_buf_type type, int *width, int *height, int *bytesperline)
-{
-	int ret;
-	struct v4l2_format fmt;
- 
-	fmt.type = type;
-	ret = ioctl(fd, VIDIOC_G_FMT, &fmt);
-	if (ret < 0) {
-		perror("VIDIOC_G_FMT failed");
-		return ret;
-	}
- 
-	*width = fmt.fmt.pix.width;
-	*height = fmt.fmt.pix.height;
-	*bytesperline = fmt.fmt.pix.bytesperline;
- 
-	printf("width %d height %d bytesperline %d\n", *width, *height, *bytesperline);
- 
-	return 0;
-}
- 
-int v4l2_s_fmt(int fd)
-{
-	return 0;
-}
- 
-int v4l2_reqbufs(int fd, enum v4l2_buf_type type, int nr_buffer)
-{
-	int ret;
-	struct v4l2_requestbuffers req;
- 
-	req.count = nr_buffer;
-	req.type = type;
-	req.memory = V4L2_MEMORY_MMAP;
-	ret = ioctl(fd, VIDIOC_REQBUFS, &req);
-	if (ret < 0) {
-		perror("VIDIOC_REQBUFS failed");
-		return ret;
-	}
- 
-	return 0;
-}
- 
-int v4l2_querybuf(int fd, enum v4l2_buf_type type, int nr_buffer, struct buffer *video_buffers)
-{
-	int ret, i;
-	struct v4l2_buffer buf;
- 
-	for (i = 0; i < nr_buffer; i++) {
-		buf.index = i;
-		buf.type = type;
-		buf.memory = V4L2_MEMORY_MMAP;
-		ret = ioctl(fd, VIDIOC_QUERYBUF, &buf);
-		if (ret < 0) {
-			perror("VIDIOC_QUERYBUF failed");
-			return ret;
-		}
- 
-		video_buffers[i].length = buf.length;
-		video_buffers[i].start = mmap(0, buf.length, PROT_READ | PROT_WRITE,
-						MAP_SHARED, fd, buf.m.offset);
-	}
- 
-	return 0;
-}
- 
-int v4l2_qbuf(int fd, enum v4l2_buf_type type, int index)
-{
-	int ret;
-	struct v4l2_buffer buf;
- 
-	buf.index = index;
-	buf.type =  type;
-	buf.memory = V4L2_MEMORY_MMAP;
-	ret = ioctl(fd, VIDIOC_QBUF, &buf);
-	if (ret < 0) {
-		perror("VIDIOC_QBUF failed");
-		return ret;
-	}
-	return 0;
-}
- 
-int v4l2_dqbuf(int fd, enum v4l2_buf_type type)
-{
-	int ret;
-	struct v4l2_buffer buf;
- 
-	buf.type = type;
-	buf.memory = V4L2_MEMORY_MMAP;
-	ret = ioctl(fd, VIDIOC_DQBUF, &buf);
-	if (ret < 0) {
-		perror("VIDIOC_DQBUF failed");
-		return ret;
-	}
- 
-	return buf.index;
-}
- 
-int v4l2_streamon(int fd)
-{
-	int ret;
-	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
- 
-	ret = ioctl(fd, VIDIOC_STREAMON, &type);
-	if (ret < 0) {
-		perror("VIDIOC_STREAMON failed");
-		return ret;
-	}
- 
-	return 0;
-}
- 
-int v4l2_streamoff(int fd)
-{
-	int ret;
-	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
- 
-	ret = ioctl(fd, VIDIOC_STREAMOFF, &type);
-	if (ret < 0) {
-		perror("VIDIOC_STREAMOFF failed");
-		return ret;
-	}
- 
-	return 0;
-}
-/* V4L2 API end */
- 
-int dev_open(char *devname)
-{
-	int fd;
- 
-	fd = open(devname, O_RDWR);
-	if (fd < 0) {
-		printf("no such video device!\n");
-		return -1;
-	}
- 
-	return fd;
-}
- 
-void dev_close(int fd)
-{
-	close(fd);
-}
- 
-int dev_init(int fd, int *width, int *height, int *bytesperline)
-{
-	int ret, i;
-	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
- 
-	ret = v4l2_querycap(fd);
-	if (ret < 0)
-		return ret;
-	
-	v4l2_enum_fmt(fd, type);
- 
-	ret = v4l2_g_fmt(fd, type, width, height, bytesperline);
-	if (ret < 0)
-		return ret;
- 
-	ret = v4l2_reqbufs(fd, type, NR_BUFFER);
-	if (ret < 0)
-		return ret;
- 
-	ret = v4l2_querybuf(fd, type, NR_BUFFER, buffers);
-	if (ret < 0)
-		return ret;
- 
-	for (i = 0; i < NR_BUFFER; i++) {
-		v4l2_qbuf(fd, type, i);
-	}
- 
-	return 0;
-}
- 
-int start_preview(int fd)
-{
-	return v4l2_streamon(fd);
-}
- 
-int stop_preview(int fd)
-{
-	return v4l2_streamoff(fd);
-}
- 
-int start_capture(char *filename, int fd, int width, int height, int byterperline)
-{
-	int index;
-	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
- 
-	index = v4l2_dqbuf(fd, type);
-	if (index < 0)
-		return -1;
- 
-	return capture(filename, buffers[index].start, width, height);
-}
- 
-int main(int argc, char *argv[])
-{
-  	int fd, ret;
-	int width, height, bytesperline;
- 
-	if (argc < 2) {
-		printf("please input a file name!\n");
-		return -1;
-	}
- 
-	fd = dev_open(argv[1]);
-	if (fd < 0)
-		return fd;
- 
-	ret = dev_init(fd, &width, &height, &bytesperline);
-	if (ret < 0)
-		return ret;
- 
- 
-	ret = start_preview(fd);
-	if (ret < 0)
-		return ret;
- 
-	start_capture(argv[1], fd, width, height, bytesperline);
- 
-	ret = stop_preview(fd);
-	if (ret < 0)
-		return ret;
- 
-	dev_close(fd);
- 
-	return 0;
-}
-
-
-#endif
