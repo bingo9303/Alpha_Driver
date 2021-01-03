@@ -49,7 +49,14 @@ void yuyv_to_rgb32( unsigned char* yuvBuffer,
                     unsigned char  *framebuf,
                     int width, int height,
                     int x, int y,
-                    int displaySizeX);                    
+                    int displaySizeX);      
+void rgb888_to_rgbxxx(  unsigned char* rgbBuffer,
+                        int length,
+                        unsigned char  *framebuf,
+                        int width, int height,
+                        int x, int y,
+                        int displaySizeX,
+                        int rgbFormat);              
 
 #endif
 

@@ -21,6 +21,16 @@
 #define DISPLAY_SIZE_X  640
 #define DISPLAY_SIZE_Y  480
 
+enum
+{
+    FORMAT_YUYV = 0,
+    FORMAT_RGB888,
+};
+
+static unsigned int v4l2FormatList[] = {V4L2_PIX_FMT_YUYV,V4L2_PIX_FMT_RGB24};
+
+static char videoFormatType = FORMAT_YUYV;
+
 typedef enum {  
     IO_METHOD_READ,  
     IO_METHOD_MMAP,  
@@ -61,22 +71,23 @@ static void  process_image(const void *p)
 {  
     
     char strbuff[50];
-	unsigned int startAddr,len;
-  //  printf("111..%ld\r\n",GetTime_Ms());
+    unsigned char* startAddr;
+	unsigned int len;
+    //printf("1.%ld\r\n",GetTime_Ms());
   	switch (io) 
   	{
 		case IO_METHOD_READ: 
 		case IO_METHOD_MMAP:  
 			{
-				struct buffer * buffer = (struct buffer * )p;
-				startAddr = buffer->start;
-				len = buffer->length;
+				struct buffer * buf = (struct buffer * )p;
+				startAddr = buf->start;
+				len = buf->length;
 			}
 			break;
 		case IO_METHOD_USERPTR:  
 			{
 				struct v4l2_buffer * buf = (struct v4l2_buffer *)p;
-				startAddr = buf->m.userptr;
+				startAddr = (unsigned char*)buf->m.userptr;
 				len = buf->length;
 			}			
 			break;
@@ -85,36 +96,78 @@ static void  process_image(const void *p)
 
     if(fb_info.fb_depth == 32)
     {
-        yuyv_to_rgb32(  startAddr,
+        if(videoFormatType == FORMAT_YUYV)
+        {
+            yuyv_to_rgb32(  startAddr,
+                            len,
+                            fb_info.framebuff,
+                            fb_info.fb_width, 
+                            fb_info.fb_height,
+                            0, 0,
+                            DISPLAY_SIZE_X); 
+        }
+        else if(videoFormatType == FORMAT_RGB888)
+        {
+            rgb888_to_rgbxxx(  startAddr,
                         len,
                         fb_info.framebuff,
                         fb_info.fb_width, 
                         fb_info.fb_height,
                         0, 0,
-                        DISPLAY_SIZE_X); 
+                        DISPLAY_SIZE_X,
+                        2);
+        }
+            
     }
     else if(fb_info.fb_depth == 24)
     {
-        yuyv_to_rgb24(  startAddr,
+        if(videoFormatType == FORMAT_YUYV)
+        {
+            yuyv_to_rgb24(  startAddr,
                         len,
                         fb_info.framebuff,
                         fb_info.fb_width, 
                         fb_info.fb_height,
                         0, 0,
                         DISPLAY_SIZE_X); 
-
+        }
+        else if(videoFormatType == FORMAT_RGB888)
+        {
+            rgb888_to_rgbxxx(  startAddr,
+                        len,
+                        fb_info.framebuff,
+                        fb_info.fb_width, 
+                        fb_info.fb_height,
+                        0, 0,
+                        DISPLAY_SIZE_X,
+                        1);
+        }
     }
     else if(fb_info.fb_depth == 16)
     {
-        yuyv_to_rgb16_rgb565(   startAddr,
+        if(videoFormatType == FORMAT_YUYV)
+        {
+            yuyv_to_rgb16_rgb565(   startAddr,
                                 len,
                                 fb_info.framebuff,
                                 fb_info.fb_width, 
                                 fb_info.fb_height,
                                 0, 0,
                                 DISPLAY_SIZE_X);
+        }
+        else if(videoFormatType == FORMAT_RGB888)
+        {
+            rgb888_to_rgbxxx(  startAddr,
+                        len,
+                        fb_info.framebuff,
+                        fb_info.fb_width, 
+                        fb_info.fb_height,
+                        0, 0,
+                        DISPLAY_SIZE_X,
+                        0);
+        }
     }    
- //   printf("222..%ld\r\n",GetTime_Ms());
+   // printf("2.%ld\r\n",GetTime_Ms());
 }  
   
 static int  read_frame(void)  
@@ -147,7 +200,7 @@ static int  read_frame(void)
             buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;  
             buf.memory = V4L2_MEMORY_MMAP;  
 
-			//buf¿Ôª·±ªÃÓ≥‰µ±«∞∂¡»°µΩµƒ «ƒƒ∏ˆ“ª∏ˆƒ⁄∫Àø’º‰ƒ⁄¥Êµƒindexµƒª∫¥Ê÷°
+			//bufÈáå‰ºöË¢´Â°´ÂÖÖÂΩìÂâçËØªÂèñÂà∞ÁöÑÊòØÂì™‰∏™‰∏Ä‰∏™ÂÜÖÊ†∏Á©∫Èó¥ÂÜÖÂ≠òÁöÑindexÁöÑÁºìÂ≠òÂ∏ß
             if (-1 == xioctl (fd, VIDIOC_DQBUF, &buf)) 
             {  
                 switch (errno) 
@@ -189,7 +242,7 @@ static int  read_frame(void)
             }  
             for (i = 0; i < n_buffers; ++i)  
             {
-            	//’“≥ˆµ±«∞∂¡»°µΩµƒª∫¥Ê÷° Ù”⁄ƒƒ“ªøÈ”√ªßø’º‰µƒƒ⁄¥Ê
+            	//ÊâæÂá∫ÂΩìÂâçËØªÂèñÂà∞ÁöÑÁºìÂ≠òÂ∏ßÂ±û‰∫éÂì™‰∏ÄÂùóÁî®Êà∑Á©∫Èó¥ÁöÑÂÜÖÂ≠ò
 				if (buf.m.userptr == (unsigned long) buffers[i].start  
                     && buf.length == buffers[i].length)  
 				{
@@ -372,7 +425,7 @@ static void  init_mmap(void)
   
     CLEAR (req);  
 
-    req.count               = 4;  //ª∫≥Â÷° ˝
+    req.count               = 4;  //ÁºìÂÜ≤Â∏ßÊï∞
     req.type                = V4L2_BUF_TYPE_VIDEO_CAPTURE;  
     req.memory              = V4L2_MEMORY_MMAP;  
   
@@ -437,7 +490,7 @@ static void  init_userp(unsigned int buffer_size)
   
     CLEAR (req);  
 
-    req.count               = 4;  //ª∫≥Â÷° ˝
+    req.count               = 4;  //ÁºìÂÜ≤Â∏ßÊï∞
     req.type                = V4L2_BUF_TYPE_VIDEO_CAPTURE;  
     req.memory              = V4L2_MEMORY_USERPTR;  
 
@@ -571,8 +624,8 @@ static void  init_device(void)
     fmt.type                = V4L2_BUF_TYPE_VIDEO_CAPTURE;  
     fmt.fmt.pix.width       = DISPLAY_SIZE_X;   
     fmt.fmt.pix.height      = DISPLAY_SIZE_Y;  
-    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;  
-    fmt.fmt.pix.field       = V4L2_FIELD_INTERLACED;  
+    fmt.fmt.pix.pixelformat = v4l2FormatList[videoFormatType];  
+    fmt.fmt.pix.field       = V4L2_FIELD_INTERLACED;
 
     if (-1 == xioctl (fd, VIDIOC_S_FMT, &fmt))  
             errno_exit ("VIDIOC_S_FMT");  
@@ -581,22 +634,26 @@ static void  init_device(void)
   
     /* Buggy driver paranoia. */  
 	
-	//YUYV∏Ò Ωœ¬£¨4∏ˆ◊÷Ω⁄∂‘”¶2∏ˆœÒÀÿµ„£¨1∏ˆœÒÀÿµ„œ‡µ±”⁄–Ë“™2∏ˆ◊÷Ω⁄
-	
-    min = fmt.fmt.pix.width * 2;  		//“ª––÷¡…Ÿ–Ë“™º∏∏ˆ◊÷Ω⁄
+	//YUYVÊ†ºÂºè‰∏ãÔºå4‰∏™Â≠óËäÇÂØπÂ∫î2‰∏™ÂÉèÁ¥†ÁÇπÔºå1‰∏™ÂÉèÁ¥†ÁÇπÁõ∏ÂΩì‰∫éÈúÄË¶Å2‰∏™Â≠óËäÇ
+	if(videoFormatType == FORMAT_YUYV)
+        min = fmt.fmt.pix.width * 2;  		//‰∏ÄË°åËá≥Â∞ëÈúÄË¶ÅÂá†‰∏™Â≠óËäÇ
+    else if(videoFormatType == FORMAT_RGB888)
+        min = fmt.fmt.pix.width * 3;
+
+        
     if (fmt.fmt.pix.bytesperline < min)  
     {
 		fmt.fmt.pix.bytesperline = min;  
 	}		
 
-    min = fmt.fmt.pix.bytesperline * fmt.fmt.pix.height;  //“ª÷°÷¡…Ÿ–Ë“™º∏∏ˆ◊÷Ω⁄
+    min = fmt.fmt.pix.bytesperline * fmt.fmt.pix.height;  //‰∏ÄÂ∏ßËá≥Â∞ëÈúÄË¶ÅÂá†‰∏™Â≠óËäÇ
     if (fmt.fmt.pix.sizeimage < min)  
     {
 		fmt.fmt.pix.sizeimage = min;  
 	}
         
 
-	//…Í«Îƒ⁄¥Ê
+	//Áî≥ËØ∑ÂÜÖÂ≠ò
     switch (io) 
     {  
         case IO_METHOD_READ:  
@@ -659,10 +716,11 @@ static void  usage(FILE *fp,int argc,char **argv)
                 "-m | --mmap          Use memory mapped buffers\n"  
                 "-r | --read          Use read() calls\n"  
                 "-u | --userp         Use application allocated buffers\n"  
+                "-f | --format        Input Video Format\n"  
                 "",argv[0]);  
 }  
   
-static const char short_options [] = "d:hmru";  
+static const char short_options [] = "d:F:hmru";  
   
 static const struct option  
 long_options [] = {  
@@ -671,6 +729,7 @@ long_options [] = {
         { "mmap",       no_argument,            NULL,           'm' },  
         { "read",       no_argument,            NULL,           'r' },  
         { "userp",      no_argument,            NULL,           'u' },  
+        { "format",     no_argument,            NULL,           'F' },
         { 0, 0, 0, 0 }  
 };  
   
@@ -713,7 +772,21 @@ int main(int argc, char *argv[])
         case 'u':  
                 io = IO_METHOD_USERPTR;  
                 break;  
-
+        case 'F':
+              if(!strcmp("YUYV",optarg))
+              {
+                videoFormatType = FORMAT_YUYV;
+              }
+              else if(!strcmp("RGB888",optarg))
+              {
+                videoFormatType = FORMAT_RGB888;
+              }
+              else
+              {
+                usage (stderr, argc, argv);  
+                exit (EXIT_FAILURE);
+              }
+              break;
         default:  
                 usage (stderr, argc, argv);  
                 exit (EXIT_FAILURE);  
