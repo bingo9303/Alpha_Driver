@@ -12,8 +12,8 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include "debugTime.h"
-#include <jpeglib.h>
-#include <jerror.h>
+#include "jpeglib.h"
+#include "jerror.h"
 
 
 
@@ -180,14 +180,19 @@ void mjpeg_to_rgbxxx(  unsigned char* mjpegBuffer,
 {
 	struct jpeg_decompress_struct cinfo;
    	struct jpeg_error_mgr jerr;
-	unsigned int x_offset,y_offset;
+	unsigned int x_offset=0,y_offset=0;
 	unsigned int temp;
+    unsigned char* decompressBuffer = (unsigned char *) malloc(1024*1024*10);      //申请10M作为解码内存
+    if(decompressBuffer == NULL)
+	{
+		printf("malloc libjpeg buffer faild\r\n");
+	}
 
 
 	cinfo.err = jpeg_std_error(&jerr);
 	jpeg_create_decompress(&cinfo);
 	//jpeg_stdio_buffer_src (&cinfo, _jpegBuffer[cache_read_pos].buffer,_jpegBuffer[cache_read_pos].len);
-	jpeg_mem_src (cinfo,mjpegBuffer,length);
+	jpeg_mem_src (&cinfo,mjpegBuffer,length);
 
 	if(jpeg_read_header(&cinfo, TRUE) != 1)
 	{
@@ -208,20 +213,20 @@ void mjpeg_to_rgbxxx(  unsigned char* mjpegBuffer,
 	
 	while (cinfo.output_scanline < cinfo.output_height) 
 	{
-		jpeg_read_scanlines(&cinfo, &buffer, 1);
+		jpeg_read_scanlines(&cinfo, &decompressBuffer, 1);
 		if (rgbFormat == FB_16B_RGB565) 
 		{
 			unsigned short	color;
 			for (x_offset = 0; x_offset < cinfo.output_width; x_offset++) 
 			{
 				temp = x_offset*3;
-				color = RGB888toRGB565(buffer[temp],buffer[temp + 1], buffer[temp + 2]);
+				color = RGB888toRGB565(decompressBuffer[temp],decompressBuffer[temp + 1], decompressBuffer[temp + 2]);
 				fb_pixel(framebuf, width, height, x+x_offset, y+y_offset, color);
 			}
 		} 
 		else if (rgbFormat == FB_24B_RGB888)
 		{
-			memcpy((unsigned char *) framebuf + (y+y_offset)*width*3 + x*3,buffer, cinfo.output_width * cinfo.output_components);
+			memcpy((unsigned char *) framebuf + (y+y_offset)*width*3 + x*3,decompressBuffer, cinfo.output_width * cinfo.output_components);
 		}
 		else if (rgbFormat == FB_32B_RGB8888)
 		{
@@ -229,7 +234,7 @@ void mjpeg_to_rgbxxx(  unsigned char* mjpegBuffer,
 			for (x_offset = 0; x_offset < cinfo.output_width; x_offset++) 
 			{
 				temp = x_offset*3;
-				color = RGB888toRGB32bit(buffer[temp],buffer[temp + 1], buffer[temp + 2]);
+				color = RGB888toRGB32bit(decompressBuffer[temp],decompressBuffer[temp + 1], decompressBuffer[temp + 2]);
 				fb_pixel_32bit(framebuf, width, height, x+x_offset, y+y_offset, color);
 			}			 
 		}
@@ -237,6 +242,7 @@ void mjpeg_to_rgbxxx(  unsigned char* mjpegBuffer,
 	}
 	jpeg_finish_decompress(&cinfo);
 	jpeg_destroy_decompress(&cinfo);
+    free(decompressBuffer);
 }
 
 

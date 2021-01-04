@@ -1,0 +1,28 @@
+./ov5640_v4l2_app -d /dev/video0 -F MJPEG -m
+Driver Name:uvcvideo
+Card Name:MSK R4231: MSK R4231
+Bus info:usb-3f980000.usb-1.4
+Driver Version:5.4.79
+format Motion-JPEG
+use format : MJPEG
+fb_device: /dev/fb0
+fb info : width=1600,height=900,depth=32
+Wrong JPEG library version: library is 90, caller expects 80
+
+
+
+pi@raspberrypi:/usr/lib/arm-linux-gnueabihf $ ls libjpe*
+libjpeg.a      libjpeg.so.62.2.0  libjpeg.so.9      libjpegxr.so.1.1
+libjpeg.so     libjpeg.so.8       libjpeg.so.9.2.0
+libjpeg.so.62  libjpeg.so.8.4.0   libjpegxr.so.0
+pi@raspberrypi:/usr/lib/arm-linux-gnueabihf $ file libjpeg.so
+libjpeg.so: symbolic link to libjpeg.so.8.4.0
+
+
+sudo ln -snf libjpeg.so.9 libjpeg.so
+pi@raspberrypi:/usr/lib/arm-linux-gnueabihf $ 
+pi@raspberrypi:/usr/lib/arm-linux-gnueabihf $ file libjpeg.so
+libjpeg.so: symbolic link to libjpeg.so.9
+
+
+

@@ -469,7 +469,9 @@ int main(int argc, char *argv[])
 
     */
    // jpeg_stdio_src(&cinfo, infile);
-   jpeg_stdio_buffer_src (&cinfo, jpeg_test, sizeof(jpeg_test));
+   //jpeg_stdio_buffer_src (&cinfo, jpeg_test, sizeof(jpeg_test));  
+
+    jpeg_mem_src (&cinfo,jpeg_test, sizeof(jpeg_test));     //使用原版的内存解码接口
 
     /*
     * read jpeg header

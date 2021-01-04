@@ -453,7 +453,9 @@ void* jpegFrambuff(void* args)
 
 		cinfo.err = jpeg_std_error(&jerr);
     	jpeg_create_decompress(&cinfo);
-		jpeg_stdio_buffer_src (&cinfo, _jpegBuffer[cache_read_pos].buffer,_jpegBuffer[cache_read_pos].len);
+	//	jpeg_stdio_buffer_src (&cinfo, _jpegBuffer[cache_read_pos].buffer,_jpegBuffer[cache_read_pos].len);
+		jpeg_mem_src (&cinfo,_jpegBuffer[cache_read_pos].buffer,_jpegBuffer[cache_read_pos].len);     //使用原版的内存解码接口
+
 		cache_read_pos = POS_OFFSET_ADD(cache_read_pos,1,CACHE_FRAME_MAX);
 
 
