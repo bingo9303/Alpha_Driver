@@ -21,13 +21,25 @@
 #define DISPLAY_SIZE_X  640
 #define DISPLAY_SIZE_Y  480
 
+struct formatListInfo
+{
+	unsigned int index;
+	char name[16];
+};
+
 enum
 {
     FORMAT_YUYV = 0,
     FORMAT_RGB888,
+    FORMAT_MJPEG,
 };
 
-static unsigned int v4l2FormatList[] = {V4L2_PIX_FMT_YUYV,V4L2_PIX_FMT_RGB24};
+static struct formatListInfo v4l2FormatList[] = {
+	{	V4L2_PIX_FMT_YUYV,		"YUYV" },
+	{	V4L2_PIX_FMT_RGB24,		"RGB8-8-8"},
+	{	V4L2_PIX_FMT_MJPEG,		"MJPEG"},
+};
+
 
 static char videoFormatType = FORMAT_YUYV;
 
@@ -98,38 +110,49 @@ static void  process_image(const void *p)
     {
         if(videoFormatType == FORMAT_YUYV)
         {
-            yuyv_to_rgb32(  startAddr,
+            yuyv_to_rgbxxx(  startAddr,
                             len,
                             fb_info.framebuff,
                             fb_info.fb_width, 
                             fb_info.fb_height,
                             0, 0,
-                            DISPLAY_SIZE_X); 
+                            DISPLAY_SIZE_X,
+                            FB_32B_RGB8888); 
         }
         else if(videoFormatType == FORMAT_RGB888)
         {
             rgb888_to_rgbxxx(  startAddr,
-                        len,
-                        fb_info.framebuff,
-                        fb_info.fb_width, 
-                        fb_info.fb_height,
-                        0, 0,
-                        DISPLAY_SIZE_X,
-                        2);
+		                        len,
+		                        fb_info.framebuff,
+		                        fb_info.fb_width, 
+		                        fb_info.fb_height,
+		                        0, 0,
+		                        DISPLAY_SIZE_X,
+		                        FB_32B_RGB8888);
         }
-            
+		else if(videoFormatType == FORMAT_MJPEG)
+		{
+			mjpeg_to_rgbxxx(  startAddr,
+                        		len,
+                        		fb_info.framebuff,
+                        		fb_info.fb_width, 
+		                        fb_info.fb_height,
+                        		0, 0,
+                        		FB_32B_RGB8888);
+		}       
     }
     else if(fb_info.fb_depth == 24)
     {
         if(videoFormatType == FORMAT_YUYV)
         {
-            yuyv_to_rgb24(  startAddr,
+            yuyv_to_rgbxxx(  startAddr,
                         len,
                         fb_info.framebuff,
                         fb_info.fb_width, 
                         fb_info.fb_height,
                         0, 0,
-                        DISPLAY_SIZE_X); 
+                        DISPLAY_SIZE_X,
+                        FB_24B_RGB888); 
         }
         else if(videoFormatType == FORMAT_RGB888)
         {
@@ -140,20 +163,31 @@ static void  process_image(const void *p)
                         fb_info.fb_height,
                         0, 0,
                         DISPLAY_SIZE_X,
-                        1);
+                        FB_24B_RGB888);
         }
+		else if(videoFormatType == FORMAT_MJPEG)
+		{
+			mjpeg_to_rgbxxx(  startAddr,
+                        		len,
+                        		fb_info.framebuff,
+                        		fb_info.fb_width, 
+		                        fb_info.fb_height,
+                        		0, 0,
+                        		FB_24B_RGB888);
+		}      
     }
     else if(fb_info.fb_depth == 16)
     {
         if(videoFormatType == FORMAT_YUYV)
         {
-            yuyv_to_rgb16_rgb565(   startAddr,
+            yuyv_to_rgbxxx(   startAddr,
                                 len,
                                 fb_info.framebuff,
                                 fb_info.fb_width, 
                                 fb_info.fb_height,
                                 0, 0,
-                                DISPLAY_SIZE_X);
+                                DISPLAY_SIZE_X,
+                                FB_16B_RGB565);
         }
         else if(videoFormatType == FORMAT_RGB888)
         {
@@ -164,8 +198,18 @@ static void  process_image(const void *p)
                         fb_info.fb_height,
                         0, 0,
                         DISPLAY_SIZE_X,
-                        0);
+                        FB_16B_RGB565);
         }
+		else if(videoFormatType == FORMAT_MJPEG)
+		{
+			mjpeg_to_rgbxxx(  startAddr,
+                        		len,
+                        		fb_info.framebuff,
+                        		fb_info.fb_width, 
+		                        fb_info.fb_height,
+                        		0, 0,
+                        		FB_16B_RGB565);
+		}    
     }    
    // printf("2.%ld\r\n",GetTime_Ms());
 }  
@@ -624,11 +668,18 @@ static void  init_device(void)
     fmt.type                = V4L2_BUF_TYPE_VIDEO_CAPTURE;  
     fmt.fmt.pix.width       = DISPLAY_SIZE_X;   
     fmt.fmt.pix.height      = DISPLAY_SIZE_Y;  
-    fmt.fmt.pix.pixelformat = v4l2FormatList[videoFormatType];  
+    fmt.fmt.pix.pixelformat = v4l2FormatList[videoFormatType].index;  
     fmt.fmt.pix.field       = V4L2_FIELD_INTERLACED;
 
     if (-1 == xioctl (fd, VIDIOC_S_FMT, &fmt))  
-            errno_exit ("VIDIOC_S_FMT");  
+    {
+		errno_exit ("VIDIOC_S_FMT");  
+	}
+	else
+	{
+		printf("use format : %s\r\n",v4l2FormatList[videoFormatType].name);
+	}
+	
 
     /* Note VIDIOC_S_FMT may change width and height. */  
   
@@ -639,6 +690,8 @@ static void  init_device(void)
         min = fmt.fmt.pix.width * 2;  		//一行至少需要几个字节
     else if(videoFormatType == FORMAT_RGB888)
         min = fmt.fmt.pix.width * 3;
+    else
+		goto request_buffers;
 
         
     if (fmt.fmt.pix.bytesperline < min)  
@@ -646,13 +699,13 @@ static void  init_device(void)
 		fmt.fmt.pix.bytesperline = min;  
 	}		
 
-    min = fmt.fmt.pix.bytesperline * fmt.fmt.pix.height;  //一帧至少需要几个字节
+    min = fmt.fmt.pix.bytesperline * fmt.fmt.pix.height;  //一行至少需要几个字节
     if (fmt.fmt.pix.sizeimage < min)  
     {
 		fmt.fmt.pix.sizeimage = min;  
 	}
         
-
+request_buffers:
 	//申请内存
     switch (io) 
     {  
@@ -766,21 +819,36 @@ int main(int argc, char *argv[])
                 break;  
 
         case 'r':  
+				if(videoFormatType == FORMAT_MJPEG)
+				{
+					printf("MJPEG only use mmap\r\n");
+					exit (EXIT_FAILURE);
+				}
                 io = IO_METHOD_READ;  
                 break;  
 
         case 'u':  
+				if(videoFormatType == FORMAT_MJPEG)
+				{
+					printf("MJPEG only use mmap\r\n");
+					exit (EXIT_FAILURE);
+				}
                 io = IO_METHOD_USERPTR;  
                 break;  
         case 'F':
               if(!strcmp("YUYV",optarg))
               {
-                videoFormatType = FORMAT_YUYV;
+				videoFormatType = FORMAT_YUYV;
               }
               else if(!strcmp("RGB888",optarg))
               {
                 videoFormatType = FORMAT_RGB888;
               }
+			  else if(!strcmp("MJPEG",optarg))
+			  {
+				videoFormatType = FORMAT_MJPEG;
+				io = IO_METHOD_MMAP;
+			  }
               else
               {
                 usage (stderr, argc, argv);  

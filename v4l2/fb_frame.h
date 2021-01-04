@@ -24,6 +24,14 @@ typedef struct{
 	unsigned char b;
 }rgb24_frame;
 
+
+typedef enum
+{
+	FB_16B_RGB565 = 0,
+	FB_24B_RGB888,
+	FB_32B_RGB8888,
+}fb_pixelBit;
+
 #define    FB_DEV  "/dev/fb0"
 
 unsigned short RGB888toRGB565(unsigned char red, unsigned char green, unsigned char blue);
@@ -32,31 +40,30 @@ int fb_pixel(void *fbmem, int width, int height,int x, int y, unsigned short col
 int fb_pixel_32bit(void *fbmem, int width, int height,int x, int y, unsigned int color);
 void init_fb(fb_info_t* dev);
 void close_fb(fb_info_t* dev);
-void yuyv_to_rgb16_rgb565( unsigned char* yuvBuffer,
+
+
+void mjpeg_to_rgbxxx(  unsigned char* mjpegBuffer,
+                        int length,
+                        unsigned char  *framebuf,
+                        int width, int height,
+                        int x, int y,
+                        fb_pixelBit rgbFormat);
+
+void yuyv_to_rgbxxx( unsigned char* yuvBuffer,
                     int length,
                     unsigned char  *framebuf,
                     int width, int height,
                     int x, int y,
-                    int displaySizeX);
-void yuyv_to_rgb24( unsigned char* yuvBuffer,
-                    int length,
-                    unsigned char  *framebuf,
-                    int width, int height,
-                    int x, int y,
-                    int displaySizeX);
-void yuyv_to_rgb32( unsigned char* yuvBuffer,
-                    int length,
-                    unsigned char  *framebuf,
-                    int width, int height,
-                    int x, int y,
-                    int displaySizeX);      
+                    int displaySizeX,
+                    fb_pixelBit rgbFormat);
+
 void rgb888_to_rgbxxx(  unsigned char* rgbBuffer,
                         int length,
                         unsigned char  *framebuf,
                         int width, int height,
                         int x, int y,
                         int displaySizeX,
-                        int rgbFormat);              
+                        fb_pixelBit rgbFormat);              
 
 #endif
 

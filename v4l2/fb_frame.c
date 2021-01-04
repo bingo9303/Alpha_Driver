@@ -12,6 +12,9 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include "debugTime.h"
+#include <jpeglib.h>
+#include <jerror.h>
+
 
 
 unsigned short RGB888toRGB565(unsigned char red, unsigned char green, unsigned char blue)
@@ -155,10 +158,94 @@ int fb_pixel_32bit(void *fbmem, int width, int height,int x, int y, unsigned int
     return (0);
 }
 
+
+
 /*
-*   yuvBuffer:要转换的YUV格式数据起始地址
+*   mjpegBuffer:要转换的MJPEG格式数据起始地址
+*   int length:MJPEG的数据长度
+*   framebuf:fb的内存
+*   width:fb的X方向的总大小
+*   height:fb的Y方向的总大小
+*   x:要显示的区域起始X位置
+*   y:要显示的区域起始Y位置
+*   rgbFormat:0-rgb565,1-rgb888,2-rgb8888
+*/
+
+void mjpeg_to_rgbxxx(  unsigned char* mjpegBuffer,
+                        int length,
+                        unsigned char  *framebuf,
+                        int width, int height,
+                        int x, int y,
+                        fb_pixelBit rgbFormat)
+{
+	struct jpeg_decompress_struct cinfo;
+   	struct jpeg_error_mgr jerr;
+	unsigned int x_offset,y_offset;
+	unsigned int temp;
+
+
+	cinfo.err = jpeg_std_error(&jerr);
+	jpeg_create_decompress(&cinfo);
+	//jpeg_stdio_buffer_src (&cinfo, _jpegBuffer[cache_read_pos].buffer,_jpegBuffer[cache_read_pos].len);
+	jpeg_mem_src (cinfo,mjpegBuffer,length);
+
+	if(jpeg_read_header(&cinfo, TRUE) != 1)
+	{
+		printf("jpeg_read_header error !!!\r\n");
+		return;
+	}
+	if(jpeg_start_decompress(&cinfo) != 1)
+	{
+		printf("jpeg_start_decompress error !!!\r\n");
+		return;
+	}
+
+	if ((cinfo.output_width > width) || (cinfo.output_height > height)) 
+	{
+		printf("JPEG bad file,cannot display\r\n");
+		return;
+	}
+	
+	while (cinfo.output_scanline < cinfo.output_height) 
+	{
+		jpeg_read_scanlines(&cinfo, &buffer, 1);
+		if (rgbFormat == FB_16B_RGB565) 
+		{
+			unsigned short	color;
+			for (x_offset = 0; x_offset < cinfo.output_width; x_offset++) 
+			{
+				temp = x_offset*3;
+				color = RGB888toRGB565(buffer[temp],buffer[temp + 1], buffer[temp + 2]);
+				fb_pixel(framebuf, width, height, x+x_offset, y+y_offset, color);
+			}
+		} 
+		else if (rgbFormat == FB_24B_RGB888)
+		{
+			memcpy((unsigned char *) framebuf + (y+y_offset)*width*3 + x*3,buffer, cinfo.output_width * cinfo.output_components);
+		}
+		else if (rgbFormat == FB_32B_RGB8888)
+		{
+			unsigned int  color;
+			for (x_offset = 0; x_offset < cinfo.output_width; x_offset++) 
+			{
+				temp = x_offset*3;
+				color = RGB888toRGB32bit(buffer[temp],buffer[temp + 1], buffer[temp + 2]);
+				fb_pixel_32bit(framebuf, width, height, x+x_offset, y+y_offset, color);
+			}			 
+		}
+		y_offset++;								   // next scanline
+	}
+	jpeg_finish_decompress(&cinfo);
+	jpeg_destroy_decompress(&cinfo);
+}
+
+
+
+
+
+/*
+*   rgbBuffer:要转换的RGB格式数据起始地址
 *   int length:RGB的数据长度
-*   rgbBuffer:要存入的RGB格式数据的起始地址
 *   framebuf:fb的内存
 *   width:fb的X方向的总大小
 *   height:fb的Y方向的总大小
@@ -174,7 +261,7 @@ void rgb888_to_rgbxxx(  unsigned char* rgbBuffer,
                         int width, int height,
                         int x, int y,
                         int displaySizeX,
-                        int rgbFormat)
+                        fb_pixelBit rgbFormat)
 {
     unsigned int i;
     unsigned int x_offset=0;
@@ -189,21 +276,21 @@ void rgb888_to_rgbxxx(  unsigned char* rgbBuffer,
         r = temp[0];
         g = temp[1];
         b = temp[2];
-        if(rgbFormat == 0)  //rgb565
+        if(rgbFormat == FB_16B_RGB565)  //rgb565
         {
             unsigned short color_16bit;
             color_16bit = RGB888toRGB565(r, g, b);
             fb_pixel(framebuf, width, height,(x+x_offset), (y+y_offset),color_16bit);
             x_offset++;
         }
-        else if(rgbFormat == 1) //rgb888
+        else if(rgbFormat == FB_24B_RGB888) //rgb888
         {
             *(framebuf + (y+y_offset)*width +(x+x_offset+0)) = (unsigned char)r;
             *(framebuf + (y+y_offset)*width +(x+x_offset+1)) = (unsigned char)g;
             *(framebuf + (y+y_offset)*width +(x+x_offset+2)) = (unsigned char)b;
             x_offset += 3;
         }
-        else if(rgbFormat == 2) //rgb8888
+        else if(rgbFormat == FB_32B_RGB8888) //rgb8888
         {
             unsigned int color_32bit;            
             color_32bit = RGB888toRGB32bit(r, g, b);
@@ -227,21 +314,22 @@ void rgb888_to_rgbxxx(  unsigned char* rgbBuffer,
 /*
 *   yuvBuffer:要转换的YUV格式数据起始地址
 *   int length:YUV的数据长度
-*   rgbBuffer:要存入的RGB格式数据的起始地址
 *   framebuf:fb的内存
 *   width:fb的X方向的总大小
 *   height:fb的Y方向的总大小
 *   x:要显示的区域起始X位置
 *   y:要显示的区域起始Y位置
 *   displaySizeX:YUV数据所显示的图像X方向大小
+*	rgbFormat:0-rgb565,1-rgb888,2-rgb8888
 */
 
-void yuyv_to_rgb16_rgb565( unsigned char* yuvBuffer,
+void yuyv_to_rgbxxx( unsigned char* yuvBuffer,
                     int length,
                     unsigned char  *framebuf,
                     int width, int height,
                     int x, int y,
-                    int displaySizeX)
+                    int displaySizeX,
+                    fb_pixelBit rgbFormat)
 {
 	unsigned int i;
     unsigned int x_offset=0;
@@ -250,9 +338,7 @@ void yuyv_to_rgb16_rgb565( unsigned char* yuvBuffer,
 	unsigned char* u0=yuvBuffer+1;
 	unsigned char* y1=yuvBuffer+2;
 	unsigned char* v0=yuvBuffer+3;
-    unsigned short color_16bit;
-
-	//double rt0=0,gt0=0,bt0=0,rt1=0,gt1=0,bt1=0;
+    
     int rt0=0,gt0=0,bt0=0,rt1=0,gt1=0,bt1=0;
     int y_temp,u, v;
 	for(i=0;i<=(length/4);i++)
@@ -279,216 +365,55 @@ void yuyv_to_rgb16_rgb565( unsigned char* yuvBuffer,
         gt1 = (y_temp - (88 * u) - (183 * v)) >> 8;
         bt1 = (y_temp + (454 * u)) >> 8;
 
-		if(rt0>255) rt0=255;
-		else if(rt0<0) rt0=0;
-	
-		if(gt0>255) gt0=255;
-		else if(gt0<0) gt0=0;
-		
-		if(bt0>255) bt0=255;
-		else if(bt0<0) bt0=0;
-		
-		if(rt1>255) rt1=255;
-		else if(rt1<0) rt1=0;
-		
-		if(gt1>255) gt1=255;
-		else if(gt1<0) gt1=0;
-		
-		if(bt1>255) bt1=255;
-		else if(bt1<0) bt1=0;	
+		rt0 = (rt0>255)? 255 : rt0;
+		gt0 = (gt0>255)? 255 : gt0;
+		bt0 = (bt0>255)? 255 : bt0;
 
-        color_16bit = RGB888toRGB565(rt0, gt0, bt0);
-        fb_pixel(framebuf, width, height,(x+x_offset+0), (y+y_offset),color_16bit);
+		rt1 = (rt1>255)? 255 : rt1;
+		gt1 = (gt1>255)? 255 : gt1;
+		bt1 = (bt1>255)? 255 : bt1;
 
-        color_16bit = RGB888toRGB565(rt1, gt1, bt1);
-        fb_pixel(framebuf,width,height, (x+x_offset+1), (y+y_offset), color_16bit);
+		if(rgbFormat == FB_16B_RGB565)
+		{
+			unsigned short color_16bit;
+			color_16bit = RGB888toRGB565(rt0, gt0, bt0);
+	        fb_pixel(framebuf, width, height,(x+x_offset+0), (y+y_offset),color_16bit);
 
-        x_offset += 2;
-
-         //1组YUV数据对应2个RGB像素点
-		if(((i % (displaySizeX/2)) == 0) && (i != 0))
-        {
-			x_offset = 0;       //回到X的起始位置
-			y_offset += 1;      //换行
+	        color_16bit = RGB888toRGB565(rt1, gt1, bt1);
+	        fb_pixel(framebuf,width,height, (x+x_offset+1), (y+y_offset), color_16bit);
+	        x_offset += 2;
 		}
-		
-		yuvBuffer=yuvBuffer+4;
+		else if(rgbFormat == FB_24B_RGB888)
+		{
+			*(framebuf + (y+y_offset)*width +(x+x_offset+0)) = (unsigned char)bt0;
+			*(framebuf + (y+y_offset)*width +(x+x_offset+1)) = (unsigned char)gt0;
+			*(framebuf + (y+y_offset)*width +(x+x_offset+2)) = (unsigned char)rt0;
 
-		if(yuvBuffer==NULL)
-			break;
- 
-		y0=yuvBuffer;
-		u0=yuvBuffer+1;
-		y1=yuvBuffer+2;
-		v0=yuvBuffer+3;
-    
-	}
-}
+			*(framebuf + (y+y_offset)*width +(x+x_offset+3)) = (unsigned char)bt1;
+			*(framebuf + (y+y_offset)*width +(x+x_offset+4)) = (unsigned char)gt1;
+			*(framebuf + (y+y_offset)*width +(x+x_offset+5)) = (unsigned char)rt1;
+			x_offset += 6;
+		}
+		else if(rgbFormat == FB_32B_RGB8888)
+		{
+			unsigned int color_32bit;
+			color_32bit = RGB888toRGB32bit(rt0, gt0, bt0);
+	        fb_pixel_32bit(framebuf,width,height, (x+x_offset+0), (y+y_offset), color_32bit);
 
-/*
-*   yuvBuffer:要转换的YUV格式数据起始地址
-*   int length:YUV的数据长度
-*   rgbBuffer:要存入的RGB格式数据的起始地址
-*   framebuf:fb的内存
-*   width:fb的X方向的总大小
-*   height:fb的Y方向的总大小
-*   x:要显示的区域起始X位置
-*   y:要显示的区域起始Y位置
-*   displaySizeX:YUV数据所显示的图像X方向大小
-*/
-
-void yuyv_to_rgb24( unsigned char* yuvBuffer,
-                    int length,
-                    unsigned char  *framebuf,
-                    int width, int height,
-                    int x, int y,
-                    int displaySizeX)
-{
-	unsigned int i;
-    unsigned int x_offset=0;
-	unsigned int y_offset=0;
-	unsigned char* y0=yuvBuffer+0;
-	unsigned char* u0=yuvBuffer+1;
-	unsigned char* y1=yuvBuffer+2;
-	unsigned char* v0=yuvBuffer+3;
-
-	double rt0=0,gt0=0,bt0=0,rt1=0,gt1=0,bt1=0;
-	for(i=0;i<=(length/4);i++)
-    {
-		bt0=1.164*(*y0-16)+2.017*(*u0-128);
-		gt0=1.164*(*y0-16)-0.813*(*v0-128)-0.392*(*u0-128);
-		rt0=1.164*(*y0-16)+1.596*(*v0-128);
- 
-		bt1=1.164*(*y1-16)+2.018*(*u0-128);
-		gt1=1.164*(*y1-16)-0.813*(*v0-128)-0.392*(*u0-128);
-		rt1=1.164*(*y1-16)+1.596*(*v0-128);
- 
-		if(rt0>255) rt0=255;
-		else if(rt0<0) rt0=0;
-	
-		if(gt0>255) gt0=255;
-		else if(gt0<0) gt0=0;
-		
-		if(bt0>255) bt0=255;
-		else if(bt0<0) bt0=0;
-		
-		if(rt1>255) rt1=255;
-		else if(rt1<0) rt1=0;
-		
-		if(gt1>255) gt1=255;
-		else if(gt1<0) gt1=0;
-		
-		if(bt1>255) bt1=255;
-		else if(bt1<0) bt1=0;		
-
-        /* 设备是32bit的，以下代码没有调试过 */
-
-        *(framebuf + (y+y_offset)*width +(x+x_offset+0)) = (unsigned char)bt0;
-        *(framebuf + (y+y_offset)*width +(x+x_offset+1)) = (unsigned char)gt0;
-        *(framebuf + (y+y_offset)*width +(x+x_offset+2)) = (unsigned char)rt0;
-
-        *(framebuf + (y+y_offset)*width +(x+x_offset+3)) = (unsigned char)bt1;
-        *(framebuf + (y+y_offset)*width +(x+x_offset+4)) = (unsigned char)gt1;
-        *(framebuf + (y+y_offset)*width +(x+x_offset+5)) = (unsigned char)rt1;
-		x_offset += 6;
+	        color_32bit = RGB888toRGB32bit(rt1, gt1, bt1);
+	        fb_pixel_32bit(framebuf,width,height, (x+x_offset+1), (y+y_offset), color_32bit);
+	        x_offset += 2;
+		}
 
         //1组YUV数据对应2个RGB像素点
 		if(((i % (displaySizeX/2)) == 0) && (i != 0))
         {
 			x_offset = 0;       //回到X的起始位置
-			y_offset += 1;  //换行
-		}
-		yuvBuffer=yuvBuffer+4;
-		if(yuvBuffer==NULL)
-			break;
- 
-		y0=yuvBuffer;
-		u0=yuvBuffer+1;
-		y1=yuvBuffer+2;
-		v0=yuvBuffer+3;
-	}
-}
- 
-void yuyv_to_rgb32( unsigned char* yuvBuffer,
-                    int length,
-                    unsigned char  *framebuf,
-                    int width, int height,
-                    int x, int y,
-                    int displaySizeX)
-{
-	unsigned int i;
-    unsigned int x_offset=0;
-	unsigned int y_offset=0;
-    unsigned int color_32bit;
-	unsigned char* y0=yuvBuffer+0;
-	unsigned char* u0=yuvBuffer+1;
-	unsigned char* y1=yuvBuffer+2;
-	unsigned char* v0=yuvBuffer+3;
- 
-    //double rt0=0,gt0=0,bt0=0,rt1=0,gt1=0,bt1=0;
-    int rt0=0,gt0=0,bt0=0,rt1=0,gt1=0,bt1=0;
-    int y_temp,u, v;
-	for(i=0;i<=(length/4);i++)
-    {
-        /*
-		bt0=1.164*(*y0-16)+2.017*(*u0-128);
-		gt0=1.164*(*y0-16)-0.813*(*v0-128)-0.392*(*u0-128);
-		rt0=1.164*(*y0-16)+1.596*(*v0-128);
- 
-		bt1=1.164*(*y1-16)+2.017*(*u0-128);
-		gt1=1.164*(*y1-16)-0.813*(*v0-128)-0.392*(*u0-128);
-		rt1=1.164*(*y1-16)+1.596*(*v0-128);
-*/
-        
-
-        u = *u0 - 128;
-        v = *v0 - 128;  
-        y_temp = *y0 << 8;
-        rt0 = (y_temp + (359 * v)) >> 8;
-        gt0 = (y_temp - (88 * u) - (183 * v)) >> 8;
-        bt0 = (y_temp + (454 * u)) >> 8;
-
-        y_temp = *y1 << 8;
-        rt1 = (y_temp + (359 * v)) >> 8;
-        gt1 = (y_temp - (88 * u) - (183 * v)) >> 8;
-        bt1 = (y_temp + (454 * u)) >> 8;
-
-		if(rt0>255) rt0=255;
-		else if(rt0<0) rt0=0;
-	
-		if(gt0>255) gt0=255;
-		else if(gt0<0) gt0=0;
-		
-		if(bt0>255) bt0=255;
-		else if(bt0<0) bt0=0;
-		
-		if(rt1>255) rt1=255;
-		else if(rt1<0) rt1=0;
-		
-		if(gt1>255) gt1=255;
-		else if(gt1<0) gt1=0;
-		
-		if(bt1>255) bt1=255;
-		else if(bt1<0) bt1=0;
-
-
-        color_32bit = RGB888toRGB32bit(rt0, gt0, bt0);
-        fb_pixel_32bit(framebuf,width,height, (x+x_offset+0), (y+y_offset), color_32bit);
-
-        color_32bit = RGB888toRGB32bit(rt1, gt1, bt1);
-        fb_pixel_32bit(framebuf,width,height, (x+x_offset+1), (y+y_offset), color_32bit);
-
-        x_offset += 2;
-
-         //1组YUV数据对应2个RGB像素点
-		if(((i % (displaySizeX/2)) == 0) && (i != 0))
-        {
-			x_offset = 0;       //回到X的起始位置
 			y_offset += 1;      //换行
 		}
 		
 		yuvBuffer=yuvBuffer+4;
- 
+
 		if(yuvBuffer==NULL)
 			break;
  
@@ -496,7 +421,6 @@ void yuyv_to_rgb32( unsigned char* yuvBuffer,
 		u0=yuvBuffer+1;
 		y1=yuvBuffer+2;
 		v0=yuvBuffer+3;
-       
 	}
 }
 
